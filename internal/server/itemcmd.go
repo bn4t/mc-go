@@ -1248,6 +1248,7 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.Dye = 0
 			case "dyed_color":
 				it.DyedColor = 0
+				it.DyedColorZero = false
 			case "suspicious_stew_effects":
 				it.StewEffects = ""
 			case "instrument":
@@ -1396,6 +1397,7 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
 			it.DyedColor = int32(n)
+			it.DyedColorZero = n == 0
 		case "firework_explosion":
 			exp, ok2 := parseFireworkExplosionSNBT(vtag)
 			if !ok2 {

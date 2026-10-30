@@ -264,6 +264,7 @@ func TestModeledPresenceComponentsRoundTrip(t *testing.T) {
 		{ID: world.ItemIDs["filled_map"], Count: 1, MapID: 1, MapPost: 1},
 		{ID: world.ItemIDs["white_dye"], Count: 1, Dye: 1},
 		{ID: world.ItemIDs["leather_helmet"], Count: 1, DyedColor: 0x112233},
+		{ID: world.ItemIDs["leather_helmet"], Count: 1, DyedColorZero: true},
 		{ID: world.ItemIDs["goat_horn"], Count: 1, InstrumentRemoved: true},
 	}
 	for _, number := range []int32{775, 776} {

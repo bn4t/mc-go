@@ -99,7 +99,7 @@ func stackKey(it server.ItemStack) string {
 	if it.Dye != 0 {
 		key += fmt.Sprintf("[dye%d]", it.Dye-1)
 	}
-	if it.DyedColor != 0 {
+	if it.DyedColor != 0 || it.DyedColorZero {
 		key += fmt.Sprintf("[dyc%d]", it.DyedColor)
 	}
 	return key

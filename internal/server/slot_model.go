@@ -239,10 +239,11 @@ func readCanonicalStackTail(r *protocol.PacketReader, it ItemStack, depth int) (
 			it.Dye = value + 1
 		case compDyedColor:
 			value, err := r.Int()
-			if err != nil || value == 0 {
-				return ItemStack{}, fmt.Errorf("slot: zero dyed color is unmodeled")
+			if err != nil {
+				return ItemStack{}, err
 			}
 			it.DyedColor = value
+			it.DyedColorZero = value == 0
 		default:
 			if err := readSlotComponent(r, &it, typ); err != nil {
 				return ItemStack{}, err

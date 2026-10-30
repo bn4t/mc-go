@@ -2438,6 +2438,7 @@ func readSlotBBTail(r *protocol.PacketReader, count, id int32) (server.ItemStack
 				return server.ItemStack{}, 0, false, nil, err
 			}
 			it.DyedColor = c
+			it.DyedColorZero = c == 0
 		case 68: // minecraft:firework_explosion
 			exp, err := bbFireworkExplosion(r)
 			if err != nil {

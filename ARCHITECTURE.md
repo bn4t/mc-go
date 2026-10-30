@@ -1535,3 +1535,8 @@ existing runtime table entries. Already-declared static passenger seats use
 measured coordinate precision. Boat class seats and rider VEHICLE offsets keep
 their existing policies. Complete type tables do not imply full pose, scale,
 zero-size or multi-passenger geometry parity.
+
+An explicitly present black dyed color is distinct from absence. ItemStack keeps
+existing nonzero representations and uses DyedColorZero for present RGB zero.
+Effective presence participates in stacking, JSON, native/Jukebox persistence,
+slot codecs and dye recipes, so black contributes to subsequent color mixing.

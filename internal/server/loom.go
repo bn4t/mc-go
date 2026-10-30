@@ -381,7 +381,7 @@ func dyeOrdOf(it ItemStack) int32 {
 // (mean of the per-entry max channel) / (max of the mean channels).
 // float32 math mirrors the bytecode's i2f/fdiv/fmul; int(f)
 // truncates like f2i.
-func applyDyeMix(existing int32, ords []int32) int32 {
+func applyDyeMix(existing int32, present bool, ords []int32) int32 {
 	var sumR, sumG, sumB, sumMax, n int
 	add := func(rgb int32) {
 		r := int((rgb >> 16) & 0xff)
@@ -393,7 +393,7 @@ func applyDyeMix(existing int32, ords []int32) int32 {
 		sumB += b
 		n++
 	}
-	if existing != 0 {
+	if present {
 		add(existing)
 	}
 	for _, ord := range ords {
@@ -460,6 +460,7 @@ func matchCraftingDye(r *data.Recipe, g craftGrid, filled []bool) (ItemStack, bo
 	}
 	out := target
 	out.Count = r.Result.Count
-	out.DyedColor = applyDyeMix(target.DyedColor, ords)
+	out.DyedColor = applyDyeMix(target.DyedColor, target.hasDyedColor(), ords)
+	out.DyedColorZero = out.DyedColor == 0
 	return out, true
 }

@@ -697,7 +697,7 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 	if it.BottleAmpSet {
 		comps["minecraft:ominous_bottle_amplifier"] = it.BottleAmp
 	}
-	if it.DyedColor != 0 {
+	if it.hasDyedColor() {
 		comps["minecraft:dyed_color"] = it.DyedColor
 	}
 	itemPaletteComponentsNBT(comps, it)

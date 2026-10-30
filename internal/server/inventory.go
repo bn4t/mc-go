@@ -157,14 +157,17 @@ type ItemStack struct {
 	// here.
 	Dye int32 `json:"dye,omitempty"`
 	// DyedColor is the minecraft:dyed_color component — the DyedItemColor
-	// record's single rgb int. 0 is a legal rgb but never occurs: the
-	// applyDyes mix divides positive channel sums, so 0 means absent.
-	DyedColor int32 `json:"dyed_color,omitempty"`
+	// record's single rgb int. Nonzero values imply presence;
+	// DyedColorZero preserves an explicitly present RGB zero.
+	DyedColor     int32 `json:"dyed_color,omitempty"`
+	DyedColorZero bool  `json:"dyed_color_zero,omitempty"`
 	// PotDeco is the minecraft:pot_decorations component — the four
 	// side item names "back,left,right,front" (brick for a blank side).
 	// Empty means the component is absent.
 	PotDeco string `json:"pot_deco,omitempty"`
 }
+
+func (it ItemStack) hasDyedColor() bool { return it.DyedColor != 0 || it.DyedColorZero }
 
 // Empty reports whether the slot holds nothing.
 func (it ItemStack) Empty() bool { return it.Count <= 0 || it.ID == 0 }
@@ -192,7 +195,7 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.MapID == other.MapID && it.MapPost == other.MapPost &&
 		it.BaseColor == other.BaseColor &&
 		it.FireworkExp == other.FireworkExp && it.Fireworks == other.Fireworks &&
-		it.Dye == other.Dye && it.DyedColor == other.DyedColor &&
+		it.Dye == other.Dye && it.DyedColor == other.DyedColor && it.hasDyedColor() == other.hasDyedColor() &&
 		it.PotDeco == other.PotDeco
 }
 
@@ -431,7 +434,7 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	if it.Dye != 0 {
 		add++
 	}
-	if it.DyedColor != 0 {
+	if it.hasDyedColor() {
 		add++
 	}
 	if it.PotDeco != "" {
@@ -671,7 +674,7 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		b.VarInt(compDye)
 		b.VarInt(it.Dye - 1)
 	}
-	if it.DyedColor != 0 {
+	if it.hasDyedColor() {
 		b.VarInt(compDyedColor)
 		b.Int(it.DyedColor)
 	}

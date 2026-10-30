@@ -7,6 +7,8 @@ package blackbox
 // carries result 0, grid 1-4, main 9-35, hotbar 36-44.
 
 import (
+	"mc-go/internal/server"
+	"mc-go/internal/world"
 	"testing"
 )
 
@@ -37,7 +39,7 @@ func TestCraftRecipeParity(t *testing.T) {
 			"CraftV45", "CraftM45", "CraftV46", "CraftM46",
 			"CraftV47", "CraftM47", "CraftV48", "CraftM48",
 			"CraftV49", "CraftM49", "CraftV50", "CraftM50",
-			"CraftV51", "CraftM51"),
+			"CraftV51", "CraftM51", "CraftV52", "CraftM52"),
 	}, nil)
 	defer tg.cleanup()
 
@@ -806,6 +808,12 @@ func TestCraftRecipeParity(t *testing.T) {
 			},
 		},
 		{
+			// Explicit RGB zero contributes black as an existing color.
+			name: "dye-zero", suf: "52", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{{"hotbar.0", `minecraft:leather_helmet[minecraft:dyed_color=0]`}, {"hotbar.1", "minecraft:red_dye"}},
+			steps: []step{{tag: "lift-h", slot: 37}, {tag: "h1", slot: 1}, {tag: "lift-r", slot: 38}, {tag: "r2", slot: 2}, {tag: "take", slot: 0}, {tag: "park", slot: 10}},
+		},
+		{
 			// A pre-dyed stack contributes its existing dyed_color to
 			// the mix as one more entry (applyDyes counts it too).
 			name: "dye-redye", suf: "41", block: "minecraft:crafting_table", menu: 12,
@@ -1092,6 +1100,14 @@ func TestCraftRecipeParity(t *testing.T) {
 			}
 			want := run(tg.vanilla, "CraftV"+c.suf)
 			got := run(tg.mcgo, "CraftM"+c.suf)
+			if c.name == "dye-zero" {
+				expected := stackKey(server.ItemStack{ID: world.ItemIDs["leather_helmet"], Count: 1, DyedColor: 5773075})
+				for name, snaps := range map[string][]clickSnap{"native": want, "go": got} {
+					if value := snaps[len(snaps)-1].menu[10]; value != expected {
+						t.Errorf("%s zero+dye result%s want%s", name, value, expected)
+					}
+				}
+			}
 			for i, s := range c.steps {
 				if diffs := diffSnaps(want[i], got[i]); len(diffs) > 0 {
 					for _, df := range diffs {

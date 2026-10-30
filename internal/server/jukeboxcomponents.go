@@ -44,7 +44,7 @@ func jukeboxDiscComponents(disc ItemStack) map[string]any {
 	if disc.Dye > 0 && disc.Dye <= int32(len(loomDyeNames)) {
 		out["minecraft:dye"] = loomDyeNames[disc.Dye-1]
 	}
-	if disc.DyedColor != 0 {
+	if disc.hasDyedColor() {
 		out["minecraft:dyed_color"] = disc.DyedColor
 	}
 	if disc.BottleAmpSet {

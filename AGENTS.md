@@ -320,3 +320,8 @@ A capped freeze counter does not establish its increment: use independent uncapp
 Base entity dimensions and first unrotated attachment facts are reproduced by
 `tools/genentitybounds/README.md`. Preserve existing runtime class/pose overrides;
 type-record attachment defaults are not interchangeable with live vehicle seats.
+
+Presence and a zero component value are separate facts. Pin absent, explicit
+zero and nonzero through ingress, persistence and a physical consumer. Creative
+slot probes need an actual packet-owner receipt and a retained-state sentinel;
+a following chat command does not prove the slot edit was applied.
