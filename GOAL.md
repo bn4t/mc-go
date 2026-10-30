@@ -19460,3 +19460,12 @@ The wire check allows one unit of final scaled-floor rounding at1e6 scale; basis
 - **Pinned** — Final palette differential PASS15.72s; scalar28.84s and jukebox45.09s regressions PASS. Actual disk save/restart retains eight cases and nested white/base/dye/layer ordering; units PASS0.285s, build/vet/tagged compilation PASS. Evidence: work/native-palette-stage/manifest.json and work/native-palette-slice.md.
 
 White remains distinct from absence through the existing sentinel. Custom pattern codecs, explicit empty-list presence, component removals and synthesized ominous-banner defaults remain separate.
+
+
+## Slice — native stew-effect and pot-decoration persistence (2026-10-30)
+
+- **Measured** — Five native controls distinguish ordered stew effects with omitted/explicit160 default duration, zero/200 nondefault durations, absent effects, four distinct pot sides and absent decorations. Native omits duration160, preserves zero/200 as TAG_Int and keeps list order. Baseline native PASS4.33s/Go FAIL3.38s. Java26.2/Temurin25.0.5+8 wire observations; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Encode the existing modeled stew effects and pot decorations through a separate common-writer helper. Four-file patch SHA256 3bd9977377113e8d3a7c975287cde4cd82ee6392002784f28d3dced18cc90921, verified with the separately committed palette dependency.
+- **Pinned** — Final structured comparison PASS27.34s; palette23.86s and jukebox21.44s regressions PASS. Actual disk save/restart tests retain the five rows and nested effect/decorations order; unit group PASS1.222s, build/vet/tagged compilation PASS. Evidence: work/native-structured-stage/manifest.json and work/native-structured-slice.md. Unowned snapshot files were checked byte-for-byte against their recorded bases.
+
+Controls use stone to avoid built-in component defaults. Explicit empty-list presence, custom or invalid identifiers/codecs and component removals remain separate.

@@ -701,6 +701,7 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 		comps["minecraft:dyed_color"] = it.DyedColor
 	}
 	itemPaletteComponentsNBT(comps, it)
+	itemStructuredComponentsNBT(comps, it)
 	if it.PotionScaleSet {
 		comps["minecraft:potion_duration_scale"] = it.PotionScale
 	}

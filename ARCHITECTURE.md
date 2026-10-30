@@ -1439,8 +1439,9 @@ bundles, trim, books and potions. The common writer preserves positive repair
 cost and modeled stored enchantment levels, keeping normal and stored maps
 distinct. Map IDs and explicit bottle amplifiers retain zero versus absence;
 nonzero dyed colors also persist. Base-color/dye palette values retain white
-versus absence, and modeled banner layers preserve order. Dyed-color zero still
-lacks a presence model.
+versus absence. Modeled banner layers, stew effects and pot sides preserve
+order; stew duration160 uses the native omitted-default encoding while zero
+remains explicit. Dyed-color zero still lacks a presence model.
 Arbitrary components, explicit empty/removal semantics and full codec/error-boundary
 parity remain incomplete.
 
