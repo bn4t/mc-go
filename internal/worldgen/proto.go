@@ -171,6 +171,11 @@ func notAir(b world.Block) bool { return !isAir(b) }
 // blocksMotion is the MATERIAL_MOTION_BLOCKING predicate.
 func blocksMotion(b world.Block) bool { return blocksMotionState(b) }
 
+// NewProtoChunk builds an empty chunk with its heightmaps initialized to
+// minY, for callers that fill live blocks through Set (the command structure
+// planner's detached snapshots).
+func NewProtoChunk(cx, cz, minY, height int32) *ProtoChunk { return newProto(cx, cz, minY, height) }
+
 func newProto(cx, cz, minY, height int32) *ProtoChunk {
 	p := &ProtoChunk{CX: cx, CZ: cz, MinY: minY, Height: height, Blocks: make([]world.Block, 16*16*height)}
 	for i := range p.worldSurface {

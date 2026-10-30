@@ -105,13 +105,14 @@ Mojang server over the wire.
       including fortresses, monuments, strongholds and mansions (see the two
       legacy-structure slices dated2026-10-29). Natural swamp-hut witch/cat residents
       and mineshaft chest carts have dedicated save/restart controls; explicit
-      swamp-hut, desert-pyramid, jungle-pyramid and igloo placement have
-      command pins (the pyramid's cellar, chest/suspicious-sand block
-      entities and level-random roof selection, the jungle temple's moss
-      selector, traps, chests and dispensers, and the igloo's top/laboratory
-      templates, chest, sign and furnace included). Other structure-generated
-      entities, other explicit structures and spawn overrides remain
-      incomplete.
+      swamp-hut, desert-pyramid, jungle-pyramid, igloo and shipwreck
+      placement have command pins (the pyramid's cellar, chest/suspicious-sand
+      block entities and level-random roof selection, the jungle temple's moss
+      selector, traps, chests and dispensers, the igloo's top/laboratory
+      templates, chest, sign and furnace, and the ocean/beached shipwreck
+      templates with supply/treasure/map chests included). Other
+      structure-generated entities, other explicit structures and spawn
+      overrides remain incomplete.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -19745,3 +19746,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 ## Verification — igloo placement slice (2026-10-30)
 
 Immutable `cd53576` passes build, vet, tagged blackbox compilation and the complete default `go test -p 2 ./... -count=1 -timeout 25m` suite: internal/server 235.342s, world 0.311s, worldgen 10.871s, public server 6.633s and default blackbox 111.152s; every other package passes. Targeted native controls on the same tree: `TestPlaceIglooParity` 11.10s and the four placement pins (igloo 11.45s, jungle 11.93s, pyramid 12.60s, swamp hut 14.93s), all PASS; focused worldgen 13.451s. These are targeted vanilla comparisons, not a complete native-oracle suite, graphical-client playtest or production-load claim.
+
+
+## Slice — explicit shipwreck command placement (2026-10-30)
+
+- **Measured** — Native `/place structure shipwreck` on the comparison flat world places `rightsideup_fronthalf` at rotation 2: a supply chest at (4,-58,22), 128 spruce and 58 dark-oak planks, writes y -60..-52. `shipwreck_beached` places `rightsideup_backhalf` at rotation 2 with treasure and map chests; its 0..2 block sink comes from the level random, so the selected wood palette and exact plank counts vary. The flat world's terrain lies below y=0; a command snapshot whose `_WG` heightmaps start at zero ignores it and moves the wreck to y=0.
+- **Implemented** — Accept shipwreck and shipwreck_beached in the command planner. Build command snapshots with the new `NewProtoChunk` constructor so `WORLD_SURFACE_WG`/`OCEAN_FLOOR_WG` initialize at the level floor and `Set` tracks blocks below y=0. The existing template, level-random and generated-block-entity path places the ocean/beached templates and their supply/treasure/map chests.
+- **Pinned** — `TestPlaceShipwreckParity` PASS 10.87s (native 1.54s, Go 2.08s): ocean success/failure replies, supply chest and exact plank/chest counts; beached treasure/map chests within the 0..2 sink window and two chests. `TestCommandShipwreckPlacement` pins both templates, rotations, plank counts, write ranges and chest loot seeds deterministically. The five placement pins re-pass (shipwreck 10.73s, igloo 11.27s, jungle 11.13s, pyramid 12.38s, swamp hut 14.88s); focused worldgen 12.764s. Build/vet/tagged compilation pass. Five-file behavior artifact `c926d91e3989f095a8835c5aedb8a95947a01b9d7c2585c74f266689f71cc8bc`. Remaining limit: the beached palette/sink is level-random, so only its chests and count are compared; other template structures remain unsupported.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement (ShipwreckStructure, ShipwreckPieces, StructurePlaceSettings.getRandom) inform independently written code.

@@ -67,7 +67,7 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 	chunks := map[[2]int32]*worldgen.ProtoChunk{}
 	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
 		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
-			chunk := &worldgen.ProtoChunk{CX: cx, CZ: cz, MinY: int32(d.minY), Height: int32(d.height), Blocks: make([]world.Block, d.height*256)}
+			chunk := worldgen.NewProtoChunk(cx, cz, int32(d.minY), int32(d.height))
 			for y := d.minY; y < d.minY+d.height; y++ {
 				for z := 0; z < 16; z++ {
 					for x := 0; x < 16; x++ {

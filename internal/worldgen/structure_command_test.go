@@ -17,7 +17,7 @@ func TestCommandStructureDetachedPlacement(t *testing.T) {
 	grass, _ := world.BlockStateOf("grass_block", nil)
 	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
 		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
-			c := &ProtoChunk{CX: cx, CZ: cz, MinY: -64, Height: 384, Blocks: make([]world.Block, 384*256)}
+			c := NewProtoChunk(cx, cz, -64, 384)
 			for x := int32(0); x < 16; x++ {
 				for z := int32(0); z < 16; z++ {
 					c.Set(x, -64, z, bedrock)
@@ -74,7 +74,7 @@ func TestCommandDesertPyramidPlacement(t *testing.T) {
 	grass, _ := world.BlockStateOf("grass_block", nil)
 	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
 		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
-			c := &ProtoChunk{CX: cx, CZ: cz, MinY: -64, Height: 384, Blocks: make([]world.Block, 384*256)}
+			c := NewProtoChunk(cx, cz, -64, 384)
 			for x := int32(0); x < 16; x++ {
 				for z := int32(0); z < 16; z++ {
 					c.Set(x, -64, z, bedrock)
@@ -151,7 +151,7 @@ func TestCommandJungleTemplePlacement(t *testing.T) {
 	grass, _ := world.BlockStateOf("grass_block", nil)
 	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
 		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
-			c := &ProtoChunk{CX: cx, CZ: cz, MinY: -64, Height: 384, Blocks: make([]world.Block, 384*256)}
+			c := NewProtoChunk(cx, cz, -64, 384)
 			for x := int32(0); x < 16; x++ {
 				for z := int32(0); z < 16; z++ {
 					c.Set(x, -64, z, bedrock)
@@ -228,7 +228,7 @@ func TestCommandIglooPlacement(t *testing.T) {
 	grass, _ := world.BlockStateOf("grass_block", nil)
 	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
 		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
-			c := &ProtoChunk{CX: cx, CZ: cz, MinY: -64, Height: 384, Blocks: make([]world.Block, 384*256)}
+			c := NewProtoChunk(cx, cz, -64, 384)
 			for x := int32(0); x < 16; x++ {
 				for z := int32(0); z < 16; z++ {
 					c.Set(x, -64, z, bedrock)
@@ -298,5 +298,102 @@ func TestCommandIglooPlacement(t *testing.T) {
 	}
 	if chests != 1 {
 		t.Errorf("igloo chests=%d want1", chests)
+	}
+}
+
+func TestCommandShipwreckPlacement(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		template string
+		rot      int
+		planks   map[string]int
+		chests   map[BlockPos]string
+		minY     int32
+		maxY     int32
+	}{
+		{
+			name: "shipwreck", template: "minecraft:shipwreck/rightsideup_fronthalf", rot: 2,
+			planks: map[string]int{"spruce_planks": 128, "dark_oak_planks": 58},
+			chests: map[BlockPos]string{{4, -58, 22}: "minecraft:chests/shipwreck_supply"},
+			minY:   -60, maxY: -52,
+		},
+		{
+			name: "shipwreck_beached", template: "minecraft:shipwreck/rightsideup_backhalf", rot: 2,
+			planks: map[string]int{"oak_planks": 164, "spruce_planks": 58},
+			chests: map[BlockPos]string{
+				{2, -61, 18}: "minecraft:chests/shipwreck_treasure",
+				{3, -63, 24}: "minecraft:chests/shipwreck_map",
+			},
+			minY: -64, maxY: -57,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := PlanCommandStructure(Vanilla(), 1, tc.name, 0, 0, -64, 384, -63, func(int32, int32, int) int32 { return -60 })
+			if err != nil || plan == nil {
+				t.Fatalf("plan %v %v", plan, err)
+			}
+			p := plan.start.Pieces[0].(*shipwreckPiece)
+			if p.name != tc.template || p.rot != tc.rot || p.tooBig() {
+				t.Fatalf("template=%s rot=%d tooBig=%v", p.name, p.rot, p.tooBig())
+			}
+			bounds := plan.Bounds()
+			chunks := map[[2]int32]*ProtoChunk{}
+			bedrock, _ := world.BlockStateOf("bedrock", nil)
+			dirt, _ := world.BlockStateOf("dirt", nil)
+			grass, _ := world.BlockStateOf("grass_block", nil)
+			for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
+				for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
+					c := NewProtoChunk(cx, cz, -64, 384)
+					for x := int32(0); x < 16; x++ {
+						for z := int32(0); z < 16; z++ {
+							c.Set(x, -64, z, bedrock)
+							c.Set(x, -63, z, dirt)
+							c.Set(x, -62, z, dirt)
+							c.Set(x, -61, z, grass)
+						}
+					}
+					chunks[[2]int32{cx, cz}] = c
+				}
+			}
+			writes, entities, blockEntities := plan.Place(chunks, NewLegacy(12345))
+			if len(writes) == 0 || len(entities) != 0 {
+				t.Fatalf("writes%d entities%v", len(writes), entities)
+			}
+			counts := map[string]int{}
+			for _, c := range chunks {
+				for _, b := range c.Blocks {
+					n, _ := world.StateOwner(b)
+					counts[n]++
+				}
+			}
+			for name, want := range tc.planks {
+				if counts[name] != want {
+					t.Errorf("%s=%d want%d", name, counts[name], want)
+				}
+			}
+			if counts["chest"] != len(tc.chests) {
+				t.Errorf("chest=%d want%d", counts["chest"], len(tc.chests))
+			}
+			minY, maxY := int32(1<<30), int32(-1<<30)
+			for _, w := range writes {
+				minY, maxY = min(minY, w.Position[1]), max(maxY, w.Position[1])
+			}
+			if minY != tc.minY || maxY != tc.maxY {
+				t.Errorf("write y %d..%d want%d..%d", minY, maxY, tc.minY, tc.maxY)
+			}
+			seen := map[BlockPos]bool{}
+			for _, be := range blockEntities {
+				table, _ := be.Data["LootTable"].(string)
+				if want, ok := tc.chests[be.Pos]; ok && table == want {
+					seen[be.Pos] = true
+					if _, ok := be.Data["LootTableSeed"].(int64); !ok {
+						t.Errorf("chest %v has no loot seed", be.Pos)
+					}
+				}
+			}
+			if len(seen) != len(tc.chests) {
+				t.Errorf("chests %v want %v", seen, tc.chests)
+			}
+		})
 	}
 }
