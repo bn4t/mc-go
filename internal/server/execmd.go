@@ -1429,7 +1429,14 @@ func roundTicks(v float64) int64 {
 // runFill implements "/fill <x1> <y1> <z1> <x2> <y2> <z2> <block>
 // [replace <filter>]", including the "replace" filter the fluid probes
 // use to count what a region holds.
-func (s *Server) runFill(player string, args []string) reply {
+func (s *Server) runFill(player string, args []string) (out reply) {
+	// Runtime failure completes store/result callbacks with zero. Syntax
+	// failures retain their error marks and do not deliver a numeric result.
+	defer func() {
+		if out.fail == nil && out.outcome == commandFailed {
+			out.result, out.hasResult = 0, true
+		}
+	}()
 	if len(args) < 7 {
 		return errTokenEnd("command.unknown.argument", len(args))
 	}
@@ -1481,6 +1488,17 @@ func (s *Server) runFill(player string, args []string) reply {
 		}
 	}
 	d := s.dimOf(player)
+	// Loaded BlockPos arguments are resolved before volume checks or writes.
+	// Observe FULL admission without generating target chunks. Unready manual
+	// embeddings keep the existing unrestricted-read convention.
+	for _, at := range [2][3]int{{c[0], c[1], c[2]}, {c[3], c[4], c[5]}} {
+		if available, known := s.scheduledPositionAvailable(d, at[0]>>4, at[2]>>4, false); known && !available {
+			return componentReply(commandError("argument.pos.unloaded"))
+		}
+		if at[1] < d.minY || at[1] >= d.minY+d.height || at[0] < -30000000 || at[0] >= 30000000 || at[2] < -30000000 || at[2] >= 30000000 {
+			return componentReply(commandError("argument.pos.outofworld"))
+		}
+	}
 	minX, maxX := minmax(c[0], c[3])
 	minY, maxY := minmax(c[1], c[4])
 	minZ, maxZ := minmax(c[2], c[5])
@@ -1557,7 +1575,9 @@ func (s *Server) runFill(player string, args []string) reply {
 	if changed == 0 {
 		return componentReply(commandError("commands.fill.failed"))
 	}
-	return opsEchoReply(translatable("commands.fill.success", int32(changed)))
+	out = opsEchoReply(translatable("commands.fill.success", int32(changed)))
+	out.result, out.hasResult = changed, true
+	return out
 }
 
 // fillDestroyCell is /fill destroy's affector: vanilla's

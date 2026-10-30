@@ -19637,3 +19637,9 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Pinned** — Final differential PASS 98.07s; focused race PASS 96.033s, units PASS 0.952s, FrozenPlayerAir PASS 13.15s and PlayerContextCollision PASS 14.48s. Restored InsideEffects regression PASS 39.31s, plus vet/both compile modes. Six-file artifact 94ae1706aeefbfe6193c46c8c76b4938f0ee06d94ea21c7e3ee8fa4b2e87ba49. Burning/melting, swept paths, imported freeze state and full constructor persistence remain separate.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
+
+## Slice — fill result callbacks and loaded endpoints (2026-10-30)
+
+- **Measured** — Native nine-control wire matrix stores the actual changed count (four or filtered one), zero for no-change/unloaded failures, one/zero success, and retains the original sentinel for syntax failures. The prior Go handler omitted numeric callbacks and could mutate unloaded targets.
+- **Implemented** — Return changed counts and runtime-failure zero; preserve syntax callback behavior. Resolve endpoint FULL readiness and bounds before volume checks/writes without generating unavailable chunks. Preserve manual embedding behavior.
+- **Pinned** — Native/Go differential PASS 13.66s; four focused units PASS 0.641s include zero provider calls and no target materialization; unchanged 24-case fill/clone predicate regression PASS 29.01s. Immutable build/vet/tagged compilation pass. Three-file artifact `7d0594b946c8d0a62b5969aa5e0c6eafffea3ef5b52ed987baf4564c55508cc9`. Wire observations use official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Broader command grammar/readiness remains partial.

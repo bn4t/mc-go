@@ -1517,3 +1517,8 @@ Common native item persistence writes and recognizes the existing complete Omino
 
 
 Explicit /place structure currently supports swamp huts only. It validates the command source position and covered chunk readiness, builds an unregistered plan over detached live blocks, applies ordered writes and admits persistent residents. Natural structure caches remain untouched. Command cat finalization observes registered hut context and moon phase separately from natural hut generation. Other structures and broader coordinate/dimension semantics remain incomplete.
+
+Fill commands deliver the actual changed count to result callbacks, zero for
+runtime failure, and no numeric completion for syntax rejection. Endpoint FULL
+readiness is observed without invoking generation; existing manual embeddings
+retain their unrestricted-read convention.
