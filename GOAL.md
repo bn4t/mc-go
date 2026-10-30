@@ -19199,3 +19199,9 @@ Coverage is Server.damageMob and its command integration. Direct Manager/TNT and
 - **Pinned** — Fifteen entity controls PASS48.88s(native6.23/Go7.40), eight source/nested/order controls35.22s(native4.33/Go4.20), source-dimension regression43.66s(native7.12/Go2.70), units0.434s/broader source-player-scale regression7.099s, build/vet/tagged compile and exact generator check PASS. Durable probe reproduces the fixture byte for byte. Final source hashes/exits: work/execute-anchor-generated-manifest.md.
 
 Baseline registry dimensions are not every runtime eye getter. Interaction dimensions, further dynamic poses/size variants, inherited baby variants and nonplayer scale lifecycle remain partial. Coordinate pins use orthogonal rotations with1e-6 entity/3e-6 source tolerance; arbitrary-angle native trig precision, facing and local positioned/summon grammar remain separate.
+
+## Slice — verify head, orb, potion and anchor integration (2026-10-30)
+
+- **Measured** — Verify immutable744a52e from an archive, excluding all concurrent work. This combines player head tracking, embedded orb motion and shape eligibility, cloud/splash Saturation, NPC invulnerability and generated eye anchors.
+- **Implemented** — No further runtime changes; record the combined gate and reproducible eye-table check.
+- **Pinned** — Build/vet and gencommandeyes exact check PASS; tagged compilation0.083s PASS. Full default suite PASS: internal/server333.542s, world0.285s, worldgen17.323s, public server11.676s and default blackbox172.919s; all other packages pass. Session39887 exited0, log work/verified-744a52e.log. Individual native wire coverage remains scoped to its slices; exhaustive native-suite, GUI and realistic-load coverage are not claimed.
