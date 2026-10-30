@@ -161,7 +161,9 @@ Mojang server over the wire.
       First-hit player XP/value/pickup has a live-oracle pin; broader
       damage, death and drop parity remains incomplete. Mob falls now use
       effective attributes, Jump Boost, landing block factors and fractional
-      support tops, with seven vanilla comparisons.
+      support tops, with seven vanilla comparisons. Ordinary player/mob knockback
+      consumes canonical resistance; sword sweep raw-motion precision is pinned.
+      Specialized weapon pushes remain partial.
 - [~] Projectiles, vehicles, mobs, villagers; player-thrown splash/lingering
       potions, registered variants, measured cloud doses and Ender Eye
       flight/use metadata now wire-pinned;
@@ -205,7 +207,9 @@ Mojang server over the wire.
       exhaustion drain + i-frames measured), starvation, void, death/
       respawn, item drops on death — eating/fall damage present; adventure
       projectile/fall damage, fractional fall flooring, effective fall attributes and
-      Jump Boost/Slow Falling/Levitation behavior wire-pinned
+      Jump Boost/Slow Falling/Levitation behavior wire-pinned. Effective maximum
+      health bounds instant/effect/food healing and clamps settled excess health;
+      finite periodic regeneration/poison/wither amplifier cadence is pinned
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -18780,3 +18784,10 @@ Builtin completions, custom clock/timeline/marker resources and broader Unicode/
 - **Pinned** — Eight-file SHA256 `2c852ba9880502049f5f730317f9a1225d015583d27e5441baee97cd954eec84`, layered on the maximum-health slice. Final24-control wire PASS83.02s (native35.84/Go38.37); existing EffectTick packet/count regression PASS65.65s (25.50/24.67), exhaustive predicate unit PASS0.359s. Tagged build, default blackbox compilation, focused server vet and standalone tool build/test PASS; regenerated facts compare byte-for-byte. An initial export omitted the tool directory; corrected setup and original log are preserved. Evidence and dependency: `work/effect-cadence-final-stage/`; source/tool checksums: `tools/probeeffectcadence/README.md`.
 
 This slice covers finite instances. Infinite periodic clocks remain separate; signed API boundary inputs do not imply negative command amplifiers are accepted. Amplifier32/no-pulse controls prevent an incorrect every-large-amplifier-every-tick shortcut.
+
+
+## Slice — verify canonical health, knockback and time/effect integration (2026-10-30)
+
+- **Measured** — The execution environment disconnected during the first full default suite for immutable commit9bb9c98. That interrupted run is retained without a passing claim. Its completed build, vet, tagged blackbox compilation0.158s and separate external API consumer checks passed; all source remained unchanged on restoration.
+- **Implemented** — No new production changes. Resume verification against the same immutable export, preserving each slice's native proof and source provenance. Update the matrix notes for measured maximum-health and knockback consumers.
+- **Pinned** — Resumed full `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server346.510s, world0.278s, worldgen13.338s, publicserver20.403s and complete default blackbox184.270s; all other packages pass. Logs: `work/verified-9bb9c98.log` and `work/verified-9bb9c98-resumed.log`; separate public consumer: `work/consumer-9bb9c98/`. This is complete default-suite integration evidence plus the documented focused native checks, not a complete native-oracle or graphical-client run.
