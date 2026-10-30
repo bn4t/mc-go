@@ -311,7 +311,7 @@ type Entity struct {
 	hideY       float64
 	hideZ       float64
 	// Creeper swell state: Swell counts toward MaxSwell (NBT Fuse,
-	// default 30), SwellDir is ±1 (metadata idx 18), Powered doubles
+	// default 30), SwellDir is ±1 (metadata idx 16), Powered doubles
 	// explosionRadius in explodeCreeper (NBT powered), Ignited is the
 	// flint/NBT fuse-light that forces swellDir +1.
 	Swell      int32

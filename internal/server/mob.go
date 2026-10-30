@@ -3626,7 +3626,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Bool(e.Powered)
 			}
 			if e.SwellDir != last.swell {
-				b.Byte(18)
+				b.Byte(16)
 				b.Byte(1) // type: varint
 				b.VarInt(e.SwellDir)
 			}
@@ -4226,15 +4226,15 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 		case "creeper":
-			// powered (17, bool) and swell_dir (18, int — non-default
-			// only while the fuse runs up).
+			// swell_dir (16, int — non-default only while the fuse
+			// runs up) and powered (17, bool).
 			if e.Powered {
 				b.Byte(17)
 				b.Byte(8)
 				b.Bool(true)
 			}
 			if e.SwellDir > 0 {
-				b.Byte(18)
+				b.Byte(16)
 				b.Byte(1) // type: varint
 				b.VarInt(1)
 			}

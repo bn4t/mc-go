@@ -19451,3 +19451,12 @@ The wire check allows one unit of final scaled-floor rounding at1e6 scale; basis
 - **Measured** — The stored-enchantment, map/amplifier/dyed-color and local-coordinate slices have independent native controls and disk or exact numerical pins recorded above.
 - **Implemented** — Integrated those changes with current docs, agent guidance and testing workflow, keeping later palette, structured-item, unload, structure-resident and hunger candidates out of the verification tree.
 - **Pinned** — Immutable cbe7da6 passed build, vet, generated eye-table consistency, tagged compilation and the complete default suite; session59785 exit0. Internal server571.157s, world0.392s, worldgen21.726s, public server11.616s and default blackbox335.444s PASS. Log: work/verified-cbe7da6.log; immutable source export: /workspace/mcgo-verified-cbe7da6. Per-slice native comparisons establish the scoped behavior; full live-oracle, GUI and production-load coverage remain separate.
+
+
+## Slice — creeper swell-direction metadata accessor (2026-10-30)
+
+- **Measured** — A real 26.2 client (Prism, offline) disconnected with "Network Protocol Error" whenever a creeper's swell direction synced: `Invalid entity data item type for field 18 on entity Creeper: old=false(Boolean), new=-1(Integer)`. The generated 26.2 metadata schema (`java_metadata_schema_gen.go`, from `tools/genentitymetadata`) places DATA_SWELL_DIR at accessor 16 (int), DATA_IS_POWERED at 17 and DATA_IS_IGNITED at 18 (both boolean). Wire observation plus the existing generated report table; no new bytecode inspection.
+- **Implemented** — The spawn pack and dirty-diff writers emit swell direction at accessor 16 instead of 18.
+- **Pinned** — `TestJavaEntityCreeperMetadataMatchesSchema` runs spawn and dirty creeper metadata through the 26.2 schema projector and requires accessor 16. It fails on the old writer (`invalid minecraft:creeper metadata accessor 18 serializer 1`) and passes on the fix. The internal unit suite passes except `TestJSetMatchesJava`, which needs a Java runtime that this workstation lacks. No differential blackbox run: this workstation has no vanilla jar or JDK.
+
+DATA_IS_IGNITED (18) is still never sent, so flint-and-steel ignition is not visible to clients. The dirty diff starts from swell direction 0, not vanilla's -1 default, so mc-go sends one extra -1 update that vanilla omits.
