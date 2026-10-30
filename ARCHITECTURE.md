@@ -1274,3 +1274,9 @@ Protocol angle bytes use native float32 scaling, mathematical floor and Java
 integer saturation before retaining the low byte. Negative fractional angles
 therefore encode correctly. This shared encoder does not supply missing tracker
 updates or establish packet ordering.
+
+
+Slime walk damping reads vertical velocity after restitution for both its
+threshold and factor. A large requested fall may bounce below the damping
+threshold, and a suppressed bounce supplies zero. Collision, support selection
+and existing vibration paths remain unchanged; orb tail behavior is separate.

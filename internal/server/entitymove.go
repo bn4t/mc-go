@@ -157,12 +157,13 @@ func (s *Server) entityMove(e *Entity, w *world.World, half, height, dx, dy, dz,
 	}
 	// SlimeBlock.stepOn — applyEffectsFromBlocks calls the support
 	// block's stepOn (getOnPosLegacy = the cell holding the point 0.2
-	// below the feet) every grounded tick: while |Δy| < 0.1 it damps
+	// below the feet) every grounded tick: the current velocity after
+	// restitution supplies |Δy| for the threshold and damping factor. It damps
 	// horizontal delta by 0.4+|Δy|·0.2 — slime's walk drag.
-	if e.Grounded && math.Abs(dy) < 0.1 {
+	if e.Grounded && math.Abs(e.MotionY) < 0.1 {
 		onBlk := w.GetBlock(world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y - 0.2)), Z: int(math.Floor(e.Z))})
 		if onName, _ := world.StateOwner(onBlk); strings.TrimPrefix(onName, "minecraft:") == "slime_block" {
-			sc := 0.4 + 0.2*math.Abs(dy)
+			sc := 0.4 + 0.2*math.Abs(e.MotionY)
 			e.MotionX *= sc
 			e.MotionZ *= sc
 		}

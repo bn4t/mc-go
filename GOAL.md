@@ -19027,3 +19027,12 @@ This pins authoritative server pose, not observer byte delivery or tracking. The
 - **Pinned** — Three-file patch SHA256 `e739412663874ae4645bec315b088a91dd0a99f68cd3a7cd31c9e7a2e104b8e6`, basee70cc3f. Build/vet,21 API goldens and existing angle/spawn units PASS0.088s. Native four-case spawn baseline PASS22.73s (2.62s); native/Go differential PASS9.56s (1.04/0.65). The wire fixture decodes variable-length velocity and matches exact entity type/position before asserting actual angles. Evidence: `work/angle-byte-stage/manifest.json`, `work/angle-byte-api.measure.txt`.
 
 This pins encoding arithmetic and generic spawn angles. Player observer delivery, head initialization and complete movement packet choice/timing remain separate.
+
+
+## Slice — slime damping uses post-restitution velocity (2026-10-30)
+
+- **Measured** — Ten native item controls cross both NoGravity states with requested vertical speeds-.03/-.11/-.12/-.13/-.2, observed slime support and exact first Age1. Baseline FAIL55.80s: native10 pass, Go6 horizontal velocities fail. A requested speed above0.1 may bounce below0.1 and receive damping; a suppressed bounce supplies zero. Native wire and factual SlimeBlock.stepOn getter/constant inspection, Java26.2/JDK25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Read current vertical velocity after restitution for the existing slime damping threshold and factor. Preserve requested movement, clipping, support selection, coefficients and event paths.
+- **Pinned** — Three-file patch SHA256 `3c2ed81ebd231dac9a53cceee479b5e95116d4032a522d32bbc92da092619a8a`, base1d1818d. Native/Go ten-case differential PASS35.55s, six-subcase named unit0.704s, focused race2.307s and default compilation0.531s PASS; tagged binary built. Frozen source hashes verified. Evidence: `work/slime-step-fixed-stage/`, `work/slime-step-slice.md`.
+
+This corrects one existing shared block-effect input. Item wire controls and independent orb observations do not establish complete living-entity motion. The dependent orb-specific tail remains separate.
