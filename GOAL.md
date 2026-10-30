@@ -19298,3 +19298,12 @@ These controls use default scale and one offset. Sleeping, same-frame scale tran
 - **Pinned** — Differential PASS18.39s(native4.87/Go4.68) covers26 player/entity controls, a two-target source-mutation snapshot, nested functions and scheduled neutral sources. Source-dimension regression12.60s, arithmetic units0.075s and command/avatar regressions4.061s PASS; build/vet/tagged compilation PASS. Final post-oracle edit changes only a header comment, covered by final build/vet/units. Evidence: work/teleport-source-rotation-manifest.md.
 
 Float-token grammar, full relative SyncPos encoding and other spatial consumers remain partial. Facing and arbitrary-angle local-vector precision are independent follow-ons.
+
+
+## Slice — canonical operator block-tag queries (2026-10-30)
+
+- **Measured** — Native block queries require operator2 independently of game mode, echo signed/repeated transaction IDs and return one TAG_End for absent block entities. Queries preserve typed inventory/components, furnace counters/recipe usage, unopened loot and structure fields while omitting outer storage metadata. Wire and factual native operation observations, Java26.2/JDK25.0.5+8; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Serialize a copy of the canonical block-entity save map without outer id/x/y/z/keepPacked. Preserve nested identifiers and subtype state, query the requester's dimension and leave client update tags unchanged. Four-file patch SHA256 b247bbf9c65c4c9ff1df2880c51ccb8b711c9967585bb74e31599625d2e7049b.
+- **Pinned** — Final differential PASS21.53s(native6.85/Go1.98); entity-query regression12.71s and seeded structure/loot regression11.46s PASS. Build/vet, block/entity query units0.154s and tagged compilation PASS. Silent permission cases require a following statistics response; the Nether setup requires actual loaded-position and successful placement receipts. Evidence: work/block-tag-query-stage/ and work/block-tag-query-slice.md.
+
+The original fixture exposed independent setblock component and long-loot-seed hydration gaps. Its failures remain preserved; query setup uses canonical item/data commands without weakening typed payload expectations. Complete subtype/component fields and unloaded lookup lifecycle remain separate.

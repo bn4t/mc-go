@@ -1413,3 +1413,10 @@ wrapped angular delta with its own history before pitch bounds apply. Ordinary
 entities can retain whole-turn yaw; player arrival reduces whole turns with
 sign-preserving remainder. This command-owned state is distinct from later
 movement normalization and does not establish complete relative SyncPos parity.
+
+
+Block-tag queries require operator2 and expose the modeled canonical saved
+block-entity view, omitting only outer storage identity, coordinates and packing
+markers. Nested items/components and unopened loot remain intact; missing block
+entities return explicit TAG_End. This route is separate from smaller client
+update tags. Full subtype coverage and unloaded lookup lifecycle remain open.

@@ -266,9 +266,12 @@ func (s *Server) sendGameRules(sess *Session) error {
 }
 
 // handleBlockEntityTagQuery answers the F3+I block query with a Tag
-// Query Response carrying the block entity's NBT, or TAG_End when the
+// Query Response carrying metadata-free saved NBT, or TAG_End when the
 // block has no block entity (vanilla's "no NBT" encoding).
 func (s *Server) handleBlockEntityTagQuery(sess *Session, p protocol.Packet) {
+	if sess.opLevel() < 2 {
+		return
+	}
 	r := protocol.NewPacketReader(p.Data)
 	tx, err := r.VarInt()
 	if err != nil {
@@ -279,7 +282,7 @@ func (s *Server) handleBlockEntityTagQuery(sess *Session, p protocol.Packet) {
 		return
 	}
 	pos := world.Pos{X: int(x), Y: int(y), Z: int(z)}
-	tag := s.blockEntityTag(sess.dimension(), pos)
+	tag := s.blockQueryTag(sess.dimension(), pos)
 	_ = sess.write(sess.ids().PlayTagQueryCB, tagQueryBody(tx, tag))
 }
 
