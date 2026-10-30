@@ -1265,8 +1265,13 @@ Coordinate-infinity connection controls do not establish physical clamp parity.
 Ordinary living-mob ticks maintain a runtime displacement sample independent of
 stored velocity, including NoAI bodies. Parked bodies retain their last sample.
 Teleport/data reload invalidate the next baseline while retaining the cached
-vector until sampling. This primitive is not yet consumed by spear damage; the
-dragon loop and broader controller/entity speed policies remain separate.
+vector until sampling. Spear relative-speed damage consumes this sample,
+independently of stored velocity. Generated kinetic component facts provide
+separate damage, knockback and dismount conditions; damage uses the raw attack
+base and the promoted component multiplier. Spear knockback uses effective
+resistance, preserves airborne Y and applies measured grounded motion. The
+dragon loop, mounted-target controllers and actual spear dismounting remain
+separate.
 
 
 Java player rotation proposals wrap to the signed half-turn range and clamp

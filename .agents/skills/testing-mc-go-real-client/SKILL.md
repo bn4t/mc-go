@@ -325,3 +325,10 @@ using execute to observe results. Unknown objectives throw, while missing scores
 in existing objectives can be ordinary false; retain both controls. Decode
 nested typed error components and exact say bodies, and retain source ownership
 and partial-fork sentinels when testing callback order.
+
+
+World-step completion can precede a player's held-use action pass. Before
+releasing a single use action, observe the appropriate player-tick receipt;
+retain the exact world-step budget and original damage/motion assertions.
+A returned mounted position alone does not establish that seat-follow or the
+player action pass has run.

@@ -342,12 +342,6 @@ func (sess *Session) enchantImmunity(typeName string) bool {
 	return false
 }
 
-// mobKnockbackResistance is the legacy species fallback still used by
-// specialized spear pushes; ordinary hurt/attack and mace use canonical values.
-var mobKnockbackResistance = map[string]float64{
-	"iron_golem": 1.0,
-}
-
 // knockDelta applies one vanilla LivingEntity.knockback step to a
 // velocity: strength folded by knockback resistance, direction pushed
 // away from the damage source, grounded victims popped upwards.

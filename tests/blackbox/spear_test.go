@@ -9,7 +9,8 @@ package blackbox
 //
 // 18 NoAI zombies stand 0.4 apart on a stone row; the player holds
 // use and immediately walks forward (~6 b/s, above the 5.1 knockback
-// threshold; on-foot speeds can never reach the ≥10 damage gate).
+// threshold). Damage and knockback have independently named component gates;
+// this fixture pins the advancement, not their speed boundaries.
 // The jab goes hot ~delay_ticks (0.6s = 12t for iron) into the walk,
 // so the ray lands inside the mob line on the first hot tick.
 // Zombies (1.95 tall) keep the pitch-0 eye ray inside their hitbox;

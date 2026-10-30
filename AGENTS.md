@@ -95,7 +95,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   any entity tick; preserve separate uncapped multi-tick and scaled-dose controls.
 - Player cooldowns, dimension refresh and advancement scans use player ticks. Observe `play_time`
   after the relevant item/update receipt; world tick steps and wall-clock sleeps
-  do not prove that a player cooldown has elapsed. Preserve exact outcome checks.
+  do not prove that a player cooldown has elapsed. Before releasing a one-shot
+  held-use probe after world stepping, observe the player pass that processes it.
+  Preserve exact outcome checks.
 - Conditional command witnesses and their barrier waits must match the exact
   decoded `/say` message body. Substrings can match syntax-error echoes,
   sender names or unconditional suffix markers. Establish block-entity creation

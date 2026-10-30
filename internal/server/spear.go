@@ -5,59 +5,20 @@ import (
 	"strings"
 )
 
-// kineticWeapon mirrors the spear's minecraft:kinetic_weapon data
-// component (vanilla 26.2). A held right-use jab: after delayTicks,
-// damageEntities sweeps the look ray every tick. Each collected entity
-// is remembered for contactCooldownTicks whether or not a condition
-// passes; dismount/knockback/damage Conditions each gate on
-// (hotTicks <= maxTicks) && a speed term:
-//   - damage:   holder look-speed >= dmgMinSpd (9..14 b/s — riding only)
-//   - knockback: holder look-speed >= 5.1
-//   - dismount:  relative closing speed >= 4.6
-//
-// stabAttack applies whichever flags passed; the spear_mobs trigger
-// counts every entity in the remembered set.
-type kineticWeapon struct {
-	delay      int
-	dmgMaxT    int
-	dmgMinSpd  float64
-	kbMaxT     int
-	kbMinSpd   float64
-	dismMaxT   int
-	dismMinRel float64
-	dmgMult    float64
-	attackDmg  float32 // base_attack_damage attribute (total = 1 + this)
-	useSnd     int32
-	hitSnd     int32
-}
-
-// Per-tier component defaults, decoded from Item.Properties.spear(...)
-// calls in vanilla Items.<clinit>: (f2, f3=dmgMult, f4=delay s,
-// f5=dmgWindow s + f6=dmgMinSpd, f7=kbWindow s + f8=kbMinSpd,
-// f9=dismountWindow s + f10=dismountMinRel).
-var kineticWeapons = map[string]kineticWeapon{
-	"wooden_spear":    {15, 100, 14.0, 200, 5.1, 300, 4.6, 0.7, 0, 1529, 1530},
-	"stone_spear":     {14, 90, 13.0, 180, 5.1, 275, 4.6, 0.82, 1, 1526, 1527},
-	"copper_spear":    {13, 80, 12.0, 165, 5.1, 250, 4.6, 0.82, 1, 1526, 1527},
-	"iron_spear":      {12, 50, 11.0, 135, 5.1, 225, 4.6, 0.95, 2, 1526, 1527},
-	"golden_spear":    {14, 70, 13.0, 170, 5.1, 275, 4.6, 0.7, 0, 1526, 1527},
-	"diamond_spear":   {10, 60, 10.0, 130, 5.1, 200, 4.6, 1.075, 3, 1526, 1527},
-	"netherite_spear": {8, 50, 9.0, 110, 5.1, 175, 4.6, 1.2, 4, 1526, 1527},
-}
-
-const spearContactCooldown = 10 // KineticWeapon contact_cooldown_ticks
+// Default kinetic component facts live in kineticinfo_gen.go. Their damage,
+// knockback and dismount conditions have distinct speed/duration roles.
 
 // spearStart begins a spear jab: the item stays in use until release
 // and damageEntities runs every tick once past the delay.
 func (s *Server) spearStart(sess *Session, itemID int32, name string) {
-	kw := kineticWeapons[name]
+	kw := kineticWeaponMetadata[name]
 	sess.usingItemID = itemID
 	sess.spearStartTick = s.TickCount()
 	sess.stabbed = map[int32]int64{}
 	x, y, z, _, _, _ := sess.Pos()
 	// playSound(except=holder): the holder's client plays the use sound
 	// locally, so the packet goes to everyone else.
-	s.playSoundSrc(sess.dimName(), x, y, z, kw.useSnd, 7, 1.0, 1.0, sess)
+	s.playSoundSrc(sess.dimName(), x, y, z, kw.useSound, 7, 1.0, 1.0, sess)
 }
 
 // spearJabTick is the per-tick tail of a held spear use —
@@ -71,12 +32,12 @@ func (s *Server) spearJabTick(sess *Session) {
 	if !ok || !strings.HasSuffix(name, "_spear") {
 		return
 	}
-	kw, ok := kineticWeapons[name]
+	kw, ok := kineticWeaponMetadata[name]
 	if !ok {
 		return
 	}
 	tick := s.TickCount()
-	hot := int(tick-sess.spearStartTick) - kw.delay
+	hot := int(tick-sess.spearStartTick) - kw.delayTicks
 	if hot < 0 {
 		return
 	}
@@ -87,7 +48,7 @@ func (s *Server) spearJabTick(sess *Session) {
 	// Vanilla getMotion(holder) = lastKnownClientMovement * 20: the
 	// per-tick position delta the client's move packets produced.
 	holderSpeed := (lx*sess.lastDelta[0] + ly*sess.lastDelta[1] + lz*sess.lastDelta[2]) * 20
-	base := 1 + kw.attackDmg
+	base := sess.kineticAttackBase()
 	eye := y + 1.62
 	tx, ty, tz := x+lx*4.5, eye+ly*4.5, z+lz*4.5
 
@@ -102,7 +63,7 @@ func (s *Server) spearJabTick(sess *Session) {
 		if !e.Living || e.Dying || e.Dim != sess.dimName() {
 			continue
 		}
-		if last, ok := sess.stabbed[e.ID]; ok && tick-last < spearContactCooldown {
+		if last, ok := sess.stabbed[e.ID]; ok && tick-last < int64(kw.contactCooldownTicks) {
 			continue
 		}
 		bb := entityBBDims(e)
@@ -110,18 +71,18 @@ func (s *Server) spearJabTick(sess *Session) {
 			continue
 		}
 		sess.stabbed[e.ID] = tick // remember before conditions — vanilla does
-		// getMotion(target) is its deltaMovement; players' own last
-		// client movement is the packet delta (idle targets ~0).
-		targetSpeed := (lx*e.MotionX + ly*e.MotionY + lz*e.MotionZ) * 20
+		// A mob's sampled actual movement can be zero while stored velocity
+		// is nonzero (for example a stationary NoAI target).
+		targetSpeed := (lx*e.knownSpeed[0] + ly*e.knownSpeed[1] + lz*e.knownSpeed[2]) * 20
 		relSpeed := math.Max(0, holderSpeed-targetSpeed)
-		canDismount := hot <= kw.dismMaxT && relSpeed >= kw.dismMinRel
-		canKb := hot <= kw.kbMaxT && holderSpeed >= kw.kbMinSpd
-		canDmg := hot <= kw.dmgMaxT && holderSpeed >= kw.dmgMinSpd
+		canDismount := kineticConditionPass(kw.dismount, hot, holderSpeed, relSpeed)
+		canKb := kineticConditionPass(kw.knockback, hot, holderSpeed, relSpeed)
+		canDmg := kineticConditionPass(kw.damage, hot, holderSpeed, relSpeed)
 		if !canDismount && !canKb && !canDmg {
 			continue
 		}
 		hitAny = true
-		dmg := base + float32(math.Floor(relSpeed*kw.dmgMult))
+		dmg := kineticDamage(base, relSpeed, kw.damageMultiplier)
 		if canDmg {
 			headOminous := e.Equips[equipHelmet].Ominous
 			dealt, _, died := s.damageMob(e, dmg, "player_attack", sess, &damageInfo{
@@ -140,18 +101,15 @@ func (s *Server) spearJabTick(sess *Session) {
 			}
 		}
 		if canKb {
-			res := float64(0)
-			if tn, ok := EntityTypeName(e.Type); ok {
-				res = mobKnockbackResistance[tn]
+			resistance := s.mobKnockbackResistance(e)
+			if resistance < 1 {
+				motion := spearKnockbackMotion([3]float64{e.MotionX, e.MotionY, e.MotionZ}, resistance, lx, lz, e.Grounded)
+				e.MotionX, e.MotionY, e.MotionZ = motion[0], motion[1], motion[2]
+				s.entities.SetMotion(e.ID, e.MotionX, e.MotionY, e.MotionZ)
+				s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
 			}
-			push := 0.4 * (1 - res)
-			e.MotionX += lx * push
-			e.MotionY += 0.4 * push
-			e.MotionZ += lz * push
-			s.entities.SetMotion(e.ID, e.MotionX, e.MotionY, e.MotionZ)
-			s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
 		}
-		// canDismount would stopRiding(); mc-go has no riding yet.
+		// Vehicle detachment for a successful dismount condition remains separate.
 	}
 	if hitAny {
 		// Vanilla makeLocalHitSound is Level.playLocalSound — an empty

@@ -19071,3 +19071,12 @@ Compiled leaves are basic function/tag calls without macro arguments, scoreboard
 - **Pinned** — Strict42-case differential plus slime vibration frequency/active-state controls PASS89.40s; named units1.686s, race3.532s, default compile0.112s and tagged build PASS. Existing merge/follow/count/pickup regression PASS37.21s(native12.81/Go12.50). Source hashes and final exits verified in `work/orb-physics-fixed-stage/manifest.json`; interrupted baseline retained separately.
 
 Coverage is ordinary air and full-cube stone/slime contact. Embedded escape, fluid motion, hard-entity collisions and broader movement overrides remain separate.
+
+
+## Slice — native kinetic spear conditions and mob push (2026-10-30)
+
+- **Measured** — Native controls distinguish named damage/knockback/dismount conditions, sampled target displacement, raw attack base and resistance-aware motion. A positive effective attack value27 with raw base10 still deals14 damage. Thirteen controls cover full/partial resistance, speed thresholds, multiplier rounding, preseeded velocity and grounded targets. Wire/public component facts, Java26.2/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Consume generated kinetic facts and runtime known-speed samples, preserve raw-base float damage arithmetic, and apply canonical resistance with measured grounded/airborne push. Remove the obsolete species-only fallback. Five-file patch SHA256 `34f39653503b26fbabb3105cd46109a76f7edcc47a351de9d64365ac5b9a5415`; corrected an obsolete advancement-test comment separately without changing its assertions.
+- **Pinned** — Final13-case native/Go differential PASS115.55s; units0.121s and existing vehicle-spear40.39s, spear-mobs24.02s and use-sound14.68s regressions PASS. Original Go failure is retained: diagnostic evidence showed world-step completion could precede the player action pass. The fixture now observes one actual player-tick increment before release, keeping the single use action and all health/motion expectations. Sources and proof: `work/spear-consumer-manifest-v2.md`.
+
+Runtime coverage is a mounted survival holder with default wooden spear against unmounted stationary NoAI villagers. Other tiers, player or mounted targets, moving-target timing, actual dismount, durability, using-hand metadata, scaled/range conditions and enchantments remain partial.
