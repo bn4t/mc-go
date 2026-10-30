@@ -1117,6 +1117,12 @@ the single existing native writer serializes it. Nil ClockStates preserves the
 legacy internal writer API, while an explicit empty map remains empty. Clock-time
 GameTest setup/teardown changes only the chosen integer total and clears its
 fraction, preserving rate/pause and restoring no elapsed test time.
+Command selection can explicitly choose either builtin clock independently of
+the source dimension. Pause/resume/rate changes preserve the fractional position
+and emit the selected clock, including repeated accepted controls. Rate parsing
+uses float32 bounds; query results retain measured long-remainder behavior and
+typed timeline errors. Custom resource overlays and complete argument/marker
+resolution remain partial.
 
 Fluid scheduler keys retain exact builtin registered owners, distinguishing
 source from flowing water/lava. A duplicate same-position/owner request retains

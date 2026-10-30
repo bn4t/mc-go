@@ -4,8 +4,6 @@ import (
 	"log"
 	"math"
 	"sort"
-	"strconv"
-	"strings"
 )
 
 type commandOutcome uint8
@@ -337,18 +335,20 @@ func (s *Server) runCommandAt(player string, level int, name string, args []stri
 // does not know.
 func unknownCommand() component { return commandError("command.unknown.command") }
 
-// runTime implements vanilla's /time command surface: /time query
-// gametime|<timeline>, and /time set|add <ticks|time marker>. Replies
-// are the real server's components, so a client localizes them and the
-// numbers keep their NBT types.
+// runTime dispatches builtin time actions and optional explicit clock
+// selection. Replies retain native component and numeric argument types.
 func (s *Server) runTime(player string, args []string) reply {
 	if len(args) == 0 {
 		// A bare "/time" stops at the end of its own name.
 		return errTokenEnd("command.unknown.command", 0)
 	}
 	switch args[0] {
+	case "of":
+		return s.runExplicitClock(player, args)
+	case "rate", "pause", "resume":
+		return s.runClockAction(player, args, nil)
 	case "query":
-		return s.runTimeQuery(args[1:])
+		return s.runClockQuery(player, args[1:], nil)
 	case "set":
 		return s.runTimeSet(player, args[1:], false)
 	case "add":
@@ -365,36 +365,9 @@ var timeMarkers = map[string]int64{
 	"midnight": 18000,
 }
 
-// runTimeQuery handles /time query gametime and /time query <timeline>.
-// The only timeline the vanilla world ships is minecraft:day; a query
-// for anything else is an unknown resource, exactly as the real server
-// reports it.
-func (s *Server) runTimeQuery(args []string) reply {
-	if len(args) != 1 {
-		// "/time query" with no timeline: the parse stops after "query".
-		return errTokenEnd("command.unknown.command", 1)
-	}
-	switch args[0] {
-	case "gametime":
-		r := componentReply(translatable("commands.time.query.gametime", s.gameTime()))
-		r.result, r.hasResult = int(s.gameTime()), true
-		return r
-	case "day", "minecraft:day":
-		v := s.timelineTime()
-		r := componentReply(translatable("commands.time.query.timeline",
-			nestedCompound{key: "", value: "minecraft:day"},
-			nestedCompound{key: "", value: v}))
-		r.result, r.hasResult = int(v), true
-		return r
-	}
-	name := args[0]
-	if !strings.Contains(name, ":") {
-		name = "minecraft:" + name
-	}
-	// The timeline is read as a registry resource, so an unknown one
-	// reports the resource error with the cursor past its name.
-	return errTokenEnd("argument.resource.not_found", 2, name, "minecraft:timeline")
-}
+// runTimeQuery keeps the default-source query entry point. Clock selection
+// and the four builtin timelines share validation with explicit controls.
+func (s *Server) runTimeQuery(args []string) reply { return s.runClockQuery("", args, nil) }
 
 // timelineTime is the position within the day timeline: the daytime
 // modulo the 24000-tick day, which is what the real server reports.
@@ -411,57 +384,7 @@ func (s *Server) timelineTime() int64 {
 // accepts a named time of day, and a value that parses as neither is a
 // marker lookup failure for set and a parse error for add.
 func (s *Server) runTimeSet(player string, args []string, add bool) reply {
-	if len(args) != 1 {
-		// "/time set" with no value: the parse stops after "set".
-		return errTokenEnd("command.unknown.command", 1)
-	}
-	arg := args[0]
-	dim := s.dimOf(player).name
-	id, hasClock := worldClockID(dim)
-	ticks, err := strconv.ParseFloat(arg, 64)
-	if err != nil || !add && ticks < 0 {
-		if add {
-			return errToken("parsing.float.expected", 2)
-		}
-		if !hasClock {
-			return componentReply(commandError("commands.time.no_default_clock", dim))
-		}
-		marker := arg
-		if !strings.Contains(marker, ":") {
-			marker = "minecraft:" + marker
-		}
-		value, ok := timeMarkers[strings.TrimPrefix(marker, "minecraft:")]
-		if !ok || id != 0 {
-			// Builtin day markers belong to the Overworld clock.
-			// Vanilla names the missing marker by its registry key. The
-			// marker lookup happens after parsing, so this failure has no
-			// context message of its own.
-			s.broadcastUpdateTimeBody(s.worldClockSyncBody([]int32{id}))
-			return componentReply(commandError("commands.time.no_time_marker_found",
-				"ResourceKey[minecraft:clock_time_marker / "+marker+"]", dim))
-		}
-		s.setWorldClockTotal(id, value)
-		return opsEchoReply(translatable("commands.time.set.time_marker", dim, marker))
-	}
-	if !hasClock {
-		return componentReply(commandError("commands.time.no_default_clock", dim))
-	}
-	// Vanilla converts the float argument to whole ticks, rounding to
-	// the nearest as it goes.
-	value := roundTicks(ticks)
-	if add {
-		// The argument is an int, so it saturates before it is added,
-		// and the sum is reported as a long: it is a sum with the
-		// world's existing clock.
-		s.addWorldClockTicks(id, saturateInt(value))
-		return opsEchoReply(translatable("commands.time.set.absolute",
-			dimCompound(dim), nestedCompound{key: "", value: s.worldClockTotal(id)}))
-	}
-	// The tick count is an int, and the real server saturates rather
-	// than wrapping: "/time set 3000000000" sets 2147483647.
-	s.setWorldClockTotal(id, saturateInt(value))
-	return opsEchoReply(translatable("commands.time.set.absolute",
-		dimCompound(dim), nestedCompound{key: "", value: int32(saturateInt(value))}))
+	return s.runTimeSetForClock(player, args, add, nil)
 }
 
 // saturateInt narrows a tick count to the int range the real server's

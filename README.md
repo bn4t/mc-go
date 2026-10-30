@@ -126,7 +126,11 @@ state across native saves and restart. `/time set` and `/time add` use the sourc
 dimension's default clock; Nether has none, and day markers belong to Overworld.
 Clock environments restore the captured integer total and clear its fraction.
 Missing native clock data starts each clock at zero; legacy level time does not
-seed absent clocks. Custom clocks and explicit rate/pause commands remain open.
+seed absent clocks. Builtin clocks support `/time of <clock>` selection and
+`pause`, `resume` and `rate` controls, with rates from 0.00001 through 1000.
+Explicit selection works from the Nether. Absolute and four builtin timeline
+queries include repetition counts. Custom resources, complete time-argument
+grammar, marker resolution and completions remain partial.
 
 Weather intensities preserve native float32 steps and project rain/thunder
 changes to clients, including initial weather for late joins. Natural/random
