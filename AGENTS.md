@@ -73,7 +73,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Synchronize protocol fixtures with observed packets or queried game ticks.
   A command reply does not prove an earlier editor packet has been applied.
   Keep capture active across barriers; do not drain away the spawn/update
-  packets that establish a later assertion's preconditions. Complete the client
+  packets that establish a later assertion's preconditions. Decode spawn LpVec3
+  before angles; distinguish fresh body and head tracking. A pitch-only silence
+  control needs an authoritative pitch receipt and actual player ticks. Complete the client
   terrain-loaded notification before entity interactions. For RUN or block-use
   timing, observe the applied controller/block state after the single action;
   command feedback alone can precede its application. For cursor return,

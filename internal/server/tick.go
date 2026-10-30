@@ -656,6 +656,7 @@ func (s *Server) playerTickOwned() {
 		if !sess.gameplayTickReady() {
 			return true
 		}
+		s.playerHeadTrackingTick(sess)
 		if sess.attackTicker < 200 {
 			sess.attackTicker++
 		}

@@ -353,3 +353,9 @@ Explicit command source frames can bypass legacy teleport shortcuts. Verify
 actual destination dimension and retained rotation through direct commands,
 functions and scheduled neutral sources. Include public avatar and streamed
 window controls; a passing same-dimension local-coordinate pin is insufficient.
+
+
+Observer rotation probes must retain fresh spawn packets across readiness and
+decode LpVec3 before spawn angles. Keep body and head expectations separate.
+For a pitch-only unchanged-head control, verify the new authoritative pitch and
+observe actual player ticks; packet silence alone can mean the input was dropped.

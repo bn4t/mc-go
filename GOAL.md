@@ -19136,3 +19136,12 @@ Retain the original full integration failure, old-fixture yaw mismatch, and init
 - **Measured** — Recheck immutable db06aac after the source-dimension regression correction. The earlier a3fdd46 failures remain recorded; concurrent uncommitted work is excluded.
 - **Implemented** — No further runtime changes. Record the clean integration of orb movement, kinetic spear consumers, direct Saturation drinking, command fixture receipts, saved-tick admission, source rotation and dimension-aware player teleport.
 - **Pinned** — Build/vet PASS, tagged blackbox compilation0.275s PASS, full default repository suite PASS: internal/server493.539s, world0.528s, worldgen27.359s, public server35.793s, default blackbox224.618s and all other packages. Session64400 exited0; log work/verified-db06aac.log. This includes the previously failing public frontend and dimension/window regressions. Individual native pins remain in their slices; no exhaustive native-suite, GUI or realistic-load claim is added.
+
+
+## Slice — player observer head tracking (2026-10-30)
+
+- **Measured** — A newly paired native player at zero rotation sends head255 after raw yaw-.1, both normally and with world time frozen. Go previously sent only full body synchronization. Native normal13.92s/frozen32.08s controls and Go17.60s failure retained; the first fixture lacking a fresh pairing witness is excluded. Wire and factual tracker cadence, Java26.2/JDK25.0.5+8, runtime SHA1 `86765a5899bd9c96461036a628796b4245715058`.
+- **Implemented** — Advance real-player head tracking on admitted player ticks, use the existing angle encoder and tracking fan-out, and emit only when packed yaw changes. Preserve presence-only incarnations and existing body pathways. Four-file patch SHA256 `80ac8833720e606f9d3a3edfa03371b2c255dc6d6cec90ef58495b6217316f4c`.
+- **Pinned** — Final normal differential PASS17.69s(native2.84/Go3.18), frozen23.35s(native3.19/Go3.07), focused units14.328s, build/vet/tagged compile and public frontend regression0.98s(package1.105s) PASS. Both wire cases assert exactly one head255, authoritative pitch-only update and no redundant head over four actual player ticks; frozen world age remains unchanged. Evidence: `work/player-head-slice.md`, `work/player-head-stage/`.
+
+Body packet selection/quantization remains different in the retained control. Exact tracker phase, general ground semantics, riders and broader teleport behavior are not established by this head-only slice.

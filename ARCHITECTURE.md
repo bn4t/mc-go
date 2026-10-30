@@ -1333,3 +1333,10 @@ execute chains, file functions and scheduled neutral sources. Player hops use
 the existing dimension-change lifecycle and preserve rotation when the command
 does not supply a replacement. Explicit source frames must not depend on legacy
 temporary session-dimension swaps.
+
+
+Real Java player head tracking runs on admitted player ticks independently of
+world freeze. Packed head-yaw changes fan out to tracked observers; unchanged
+yaw stays silent even when pitch changes. Presence-only incarnations retain
+their capability boundary. Body packet selection and precise tracker phase,
+ground, rider and teleport behavior remain separate work.
