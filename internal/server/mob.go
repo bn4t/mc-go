@@ -833,10 +833,16 @@ func (s *Server) mobCrammingStep(e *Entity, maxCram int) {
 }
 
 // mobBounds returns the (width, height) bounding box for an entity
-// type, defaulting to the player's box.
+// type. Existing entries retain their runtime policies; measured positive
+// type records fill missing entries before the legacy player-box fallback.
 func mobBounds(typeID int32) [2]float64 {
 	if dims, ok := mobBoundsTable[typeID]; ok {
 		return dims
+	}
+	if name, ok := EntityTypeName(typeID); ok {
+		if dims, ok := entityTypeBaseDims[name]; ok && dims[0] > 0 && dims[1] > 0 {
+			return [2]float64{float64(dims[0]), float64(dims[1])}
+		}
 	}
 	return [2]float64{0.6, 1.8}
 }

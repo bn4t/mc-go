@@ -1528,3 +1528,10 @@ queue as hut residents. Generation retains the original random draws and emits
 latent loot table/seed descriptors. Fresh nonliving carts retain their initial
 first-tick save flag until the existing cart tick clears it; cargo unpacking
 continues through the existing container machinery.
+
+
+Measured positive entity type dimensions fill missing base bounds, preserving
+existing runtime table entries. Already-declared static passenger seats use
+measured coordinate precision. Boat class seats and rider VEHICLE offsets keep
+their existing policies. Complete type tables do not imply full pose, scale,
+zero-size or multi-passenger geometry parity.

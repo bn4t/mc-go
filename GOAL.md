@@ -19662,3 +19662,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Pinned** — Both generators check cleanly; registry census unit PASS 0.080s; both probe contracts reproduce the original fixture. Artifact aebd0c3c41d3c27685d7d66bca6eb821c51815187d13845d79749064fe6aab48.
 
 Official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Public numeric getter facts and wire observations inform independent implementation.
+
+
+## Slice — Missing mount bounds and static passenger precision (2026-10-30)
+
+- **Measured** — Native horse/donkey/mule dimensions differ from the old player-sized fallback; horse/donkey/mule/cat/cow seats retain promoted numeric precision. Strict native-before controls expose eleven Go bbox/seat/reach errors.
+- **Implemented** — Use measured positive base dimensions only for previously unmapped types and measured coordinates for already-declared static seats. Preserve legacy entries, boat runtime branches, babies and rider vehicle offsets.
+- **Pinned** — Five-body differential PASS 29.43s; units PASS 0.101s, race PASS 1.531s, all 21 boats retain legacy bounds. Artifact f7d65ade8145b40a20baedd78a33c26d129ff9d1227e532d3dbf18957466baeb. Identical controlled pre/post runs preserve original boat assertions; an additional actual rider-position discrepancy demonstrably predates this slice and remains open. Scale/pose/multiple-seat lifecycle and complete geometry remain partial.
+
+Official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Public numeric getter facts and wire observations inform independent implementation.

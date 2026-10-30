@@ -307,8 +307,8 @@ func passengerAttach(veh *Entity) [3]float64 {
 	return passengerAttachAdult(name, veh.Type)
 }
 
-// entityBBDims is the entity's effective bounding-box (width,height) —
-// Entity.getDimensions: babies resolve their declared BABY_DIMENSIONS
+// entityBBDims applies the existing baby and armor-stand variants to the
+// type's modeled base box. Babies resolve their declared BABY_DIMENSIONS
 // (babyDimsTable), the scaled-dims types scale the adult box
 // (babyDimsScale), and every other baby uses LivingEntity's ageScale
 // factor (adult·0.5).
@@ -339,9 +339,15 @@ func entityBBDims(e *Entity) [2]float64 {
 // declared vec, the declared y lifted to (0,y,0), else AT_HEIGHT.
 func passengerAttachAdult(name string, typeID int32) [3]float64 {
 	if v, ok := passengerAttachVec[name]; ok {
+		if measured, ok := entityTypePassengerAttachments[name]; ok {
+			return measured
+		}
 		return v
 	}
 	if y, ok := passengerAttachY[name]; ok {
+		if measured, ok := entityTypePassengerAttachments[name]; ok {
+			return measured
+		}
 		return [3]float64{0, y, 0}
 	}
 	if isBoatEntityName(name) {
