@@ -19444,3 +19444,10 @@ Explicit dyed-color zero still lacks a presence model. Component removals, built
 - **Pinned** — Exact-bit numerical census PASS0.152s, with duplicate/missing-index, required-constant and complete rotation-axis checks. Native command comparison PASS27.65s across24 bounded rotations/72 coordinates; unchanged source-rotation25.37s and anchor16.75s regressions PASS. Relevant units6.301s, build/vet/tagged compilation PASS. Reproduction: tools/probecommandmath/README.md; evidence: work/command-local-math-manifest.md.
 
 The wire check allows one unit of final scaled-floor rounding at1e6 scale; basis units match exact bits. Facing-angle interpolation, global entity trigonometry, arbitrary weighted-offset sums and broader local-coordinate grammar remain separate.
+
+
+## Slice — native item and local-coordinate integration verification (2026-10-30)
+
+- **Measured** — The stored-enchantment, map/amplifier/dyed-color and local-coordinate slices have independent native controls and disk or exact numerical pins recorded above.
+- **Implemented** — Integrated those changes with current docs, agent guidance and testing workflow, keeping later palette, structured-item, unload, structure-resident and hunger candidates out of the verification tree.
+- **Pinned** — Immutable cbe7da6 passed build, vet, generated eye-table consistency, tagged compilation and the complete default suite; session59785 exit0. Internal server571.157s, world0.392s, worldgen21.726s, public server11.616s and default blackbox335.444s PASS. Log: work/verified-cbe7da6.log; immutable source export: /workspace/mcgo-verified-cbe7da6. Per-slice native comparisons establish the scoped behavior; full live-oracle, GUI and production-load coverage remain separate.
