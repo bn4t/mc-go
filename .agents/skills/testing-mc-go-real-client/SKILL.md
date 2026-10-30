@@ -245,3 +245,15 @@ Otherwise the test client can change the subject's actual position and falsely
 blame command-source semantics. Keep an independent typed position query in
 teleport/function probes. The default legacy sink is not a general position
 simulator; the stateful sink covers its measured teleport-only sequence.
+
+
+## Health-consumer probes
+
+Pair raw bases and effective attribute queries with actual typed Health and
+applied damage. Raising max_health alone grants no health; removing a modifier
+can require the living refresh before excess health is clamped. Clear a prior
+instant effect and observe actual player ticks before measuring a subsequent
+heal. For periodic effects, include both a zero-interval amplifier and a wrapped
+amplifier32 on a short finite duration: treating all high amplifiers as every
+tick would incorrectly pass only the first control. Finite effect evidence does
+not establish the entity-age phase used by infinite instances.

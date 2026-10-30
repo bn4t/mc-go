@@ -105,6 +105,11 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Function probes must distinguish empty/missing groups from nonempty functions
   without return: their execute-store callbacks differ. Confirm loader acceptance
   separately from a codec's partial result, including function permission level.
+- Mixed avatar/session tests must await actual owned avatar retirement before
+  direct legacy session teardown; Close can return before queued retirement.
+- Pair raw/effective attribute queries with the physical consumer outcome. For
+  healing, clear prior instant effects and observe actual player ticks before
+  asserting Health; raising a maximum alone does not heal.
 - Snapshot player-owned state before common retirement removes its entity.
   Native permanent effect modifiers must retain their active identity/duration;
   identifier prefixes alone do not establish ownership. Distinguish raw saved
