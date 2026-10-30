@@ -19529,3 +19529,10 @@ This uses the existing legacy execute fallback and retains its fork/failure/budg
 - **Pinned** — `TestJavaEntityCreeperMetadataMatchesSchema` runs spawn and dirty creeper metadata through the 26.2 schema projector and requires accessor 16. It fails on the old writer (`invalid minecraft:creeper metadata accessor 18 serializer 1`) and passes on the fix. The internal unit suite passes except `TestJSetMatchesJava`, which needs a Java runtime that this workstation lacks. No differential blackbox run: this workstation has no vanilla jar or JDK.
 
 DATA_IS_IGNITED (18) is still never sent, so flint-and-steel ignition is not visible to clients. The dirty diff starts from swell direction 0, not vanilla's -1 default, so mc-go sends one extra -1 update that vanilla omits.
+
+
+## Slice — integrate concurrent master corrections (2026-10-30)
+
+- **Measured** — The direct push was rejected because master advanced with three independent commits: creeper swell-direction accessor16/schema validation, removal of the example anticheat plugin from the default binary, and outbound disconnect-reason logging.
+- **Implemented** — Merged those commits with the verified local batch in an isolated worktree, preserving both progress logs. Applied the exact integrated delta to the shared checkout without replacing any agent work; no force push or history loss.
+- **Pinned** — Immutable merge106b500 passed build, vet, generated eye-table consistency, tagged compilation and the complete default suite; session68128 exit0. Internal server325.174s, world0.460s, worldgen21.877s, public server21.063s and default blackbox138.669s PASS. Log: work/verified-106b500.log. The remote creeper schema test is included; the environment also supplies Java for the previously unavailable unit checks. This is scoped integration evidence, not full live-client or production-load parity.
