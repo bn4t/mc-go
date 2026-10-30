@@ -232,10 +232,8 @@ func functionCommandReply(c component) reply {
 }
 
 func (s *Server) runFunctionTag(player, id string) reply {
-	names := append([]string(nil), s.functionTags[id]...)
-	for _, name := range names {
-		s.runFunction(player, []string{name})
-	}
+	names := s.functionTags[id]
+	s.executeFunctionNames(player, names, true)
 	switch len(names) {
 	case 0:
 		r := componentReply(commandError("commands.function.scheduled.no_functions", id))
@@ -263,12 +261,7 @@ func (s *Server) runServerFunctionList(names []string) {
 	frame := commandSourceFrame{dim: s.dims[dimOverworld], pos: [3]float64{float64(floor(sx)), float64(floor(sy)), float64(floor(sz))}, display: literal("Server"), level: functionPermLevel}
 	s.withCommandFrame(&frame, func() reply {
 		for _, name := range names {
-			for _, line := range s.functions[name] {
-				fields := splitCommandArgs(strings.TrimSpace(line))
-				if len(fields) > 0 {
-					s.runCommandAt(neutralCommandActor, functionPermLevel, fields[0], fields[1:])
-				}
-			}
+			s.executeFunctionNames(neutralCommandActor, []string{name}, false)
 		}
 		return reply{}
 	})

@@ -72,14 +72,9 @@ func (s *Server) grantAdvancementRewards(sess *Session, meta *advMeta) {
 		}
 	}
 	if fn, ok := reward["function"].(string); ok {
-		for _, line := range s.functions[normalizeID(fn)] {
-			fields := splitCommandArgs(line)
-			if len(fields) == 0 {
-				continue
-			}
-			// Reward functions suppress feedback and keep executing after a failed
-			// line, using the rewarded player's source at permission level two.
-			_, _ = s.runCommandAt(sess.getName(), functionPermLevel, fields[0], fields[1:])
+		name := normalizeID(fn)
+		if _, exists := s.functions[name]; exists {
+			s.executeFunctionNames(sess.getName(), []string{name}, false)
 		}
 	}
 }

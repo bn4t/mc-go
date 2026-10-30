@@ -1787,6 +1787,12 @@ func typedStoreValue(typ string, v int64, scale float64) any {
 // chain's frame bound on the sender's session: the forked executor for
 // @s reads, the forked origin for ~, restored after.
 func (s *Server) execRun(ctx *executeContext, player string, sub []string, subTok int) reply {
+	return s.functionExecuteLeaf(player, sub, func() reply {
+		return s.execRunNow(ctx, player, sub, subTok)
+	})
+}
+
+func (s *Server) execRunNow(ctx *executeContext, player string, sub []string, subTok int) reply {
 	if source := s.commandFrame(player); source != nil && (!s.commandExists(sub[0]) || source.level < commandLevel(sub[0])) {
 		return errToken("command.unknown.argument", subTok)
 	}

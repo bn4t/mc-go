@@ -116,8 +116,11 @@ controls; scheduled functions can summon from the server's world-spawn source.
 File and function-tag callbacks and absolute deadlines survive native saves
 and restart. Startup folder function tags support merge/replace and measured
 required/optional references. The load tag runs once and tick tag each world
-tick before time advances. Macros, returns, command-sequence limits, complete
-function syntax validation and complex optional-cycle ordering remain partial.
+tick before time advances. Function calls now share a bounded action queue for
+measured nested, recursive, conditional and forked execution. The default
+65536-action limit terminates recursive work without growing the Go call stack;
+queued calls retain their invocation source. Macros, returns, global outer
+command/fork budgets, full syntax validation and optional-cycle ordering remain partial.
 Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.

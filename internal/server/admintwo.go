@@ -225,29 +225,12 @@ func (s *Server) runFunction(player string, args []string) reply {
 	if isTag {
 		return s.runFunctionTag(player, fn)
 	}
-	lines, ok := s.functions[fn]
-	if !ok {
+	if _, ok := s.functions[fn]; !ok {
 		return componentReply(commandError("arguments.function.unknown", fn))
 	}
-	// Each line runs as its own command with the caller as source at
-	// the function-permission-level; per-line feedback stays out of
-	// chat the way vanilla's function execution sinks it, and a
-	// failing line aborts the call with that command's own error.
-	// Vanilla's /function reply is the scheduled key: execution is
-	// deferred to the enclosing command's queue.
-	for _, ln := range lines {
-		fields := splitCommandArgs(ln)
-		if len(fields) == 0 {
-			continue
-		}
-		r, ok := s.runCommandAt(player, functionPermLevel, fields[0], fields[1:])
-		if !ok {
-			return componentReply(commandError("command.unknown.command"))
-		}
-		if r.fail != nil {
-			return r
-		}
-	}
+	// Suppress body feedback and retain the invocation source. Runtime
+	// failures consume their action and allow following commands to run.
+	s.executeFunctionNames(player, []string{fn}, true)
 	return functionCommandReply(translatable("commands.function.scheduled.single", fn))
 }
 

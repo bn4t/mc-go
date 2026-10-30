@@ -1,10 +1,12 @@
 package server
 
-// commandSourceFrame is a simulation-owned non-player source. The internal
-// actor key is never admitted as a session or used as its display name.
+// commandSourceFrame is a simulation-owned command source snapshot. Neutral
+// actor keys are never admitted as sessions or used as display names.
 // Child execute frames retain permissions while rebinding spatial context
 // and, for execute-as, the optional entity and display name.
 type commandSourceFrame struct {
+	// Empty actor retains the original neutral-source binding.
+	actor    string
 	dim      *dimension
 	pos      [3]float64
 	rotation [2]float32
@@ -26,10 +28,11 @@ type commandExecutionResults struct {
 const neutralCommandActor = "\x00command-source"
 
 func (s *Server) commandFrame(actor string) *commandSourceFrame {
-	if actor != neutralCommandActor {
+	frame := s.activeCommandSource
+	if frame == nil || frame.actor != actor && !(frame.actor == "" && actor == neutralCommandActor) {
 		return nil
 	}
-	return s.activeCommandSource
+	return frame
 }
 
 func (s *Server) withCommandFrame(frame *commandSourceFrame, run func() reply) reply {

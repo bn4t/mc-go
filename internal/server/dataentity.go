@@ -2979,9 +2979,10 @@ func splitKV(body string) []string {
 func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, single bool, srcDim *dimension) ([]*dataEntity, *reply) {
 	var source *commandSourceFrame
 	if sender == nil {
-		// Non-player command helpers run under the dispatcher's scoped
-		// frame. Dispatch for a different actor clears it first.
+		// Dispatch for a different actor clears the scoped frame first.
 		source = s.activeCommandSource
+	} else {
+		source = s.commandFrame(sender.getName())
 	}
 	if len(tok) == 0 || tok[0] != '@' {
 		if sess := s.findSessionByName(tok); sess != nil {

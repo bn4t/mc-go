@@ -1176,3 +1176,13 @@ base. Initial health uses the sanitized copied maximum-health base. Copied
 instances become dirty for projection, and both equipment scans reinitialize.
 The owner receives abilities during respawn. End-return/keepEverything policy,
 complete constructor-state copying and all healing consumers remain separate.
+
+
+Function execution uses a simulation-owned explicit stack with lazy line/member
+continuations. Each call captures actor, executor, position, dimension and
+rotation; temporary legacy session bindings restore after each action without
+undoing actual player movement. Minimum pending costs bound the reachable
+frontier, avoiding expansion of unreachable recursive tails or fork siblings.
+Manual/tag, startup/tick, scheduled and advancement-reward calls use this path.
+The context starts at function entry; shared budgets across outer command forks,
+max_command_forks, return/macros and complete parser continuations remain open.

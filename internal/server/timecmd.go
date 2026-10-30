@@ -278,7 +278,7 @@ func (s *Server) runCommand(player, name string, args []string) (reply, bool) {
 // runCommandAt is runCommand with the caller's level spelled out —
 // console sources (RCON) carry level 4 without an op entry.
 func (s *Server) runCommandAt(player string, level int, name string, args []string) (reply, bool) {
-	if player != neutralCommandActor && s.activeCommandSource != nil {
+	if s.activeCommandSource != nil && s.commandFrame(player) == nil {
 		var known bool
 		r := s.withCommandFrame(nil, func() reply {
 			var out reply

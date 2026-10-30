@@ -278,8 +278,9 @@ Mojang server over the wire.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
   file/tag events survive native save/restart. Startup load/tick tags and measured
-  required/optional references execute; macros, returns, command budgets and
-  full function syntax remain open.
+  required/optional references execute. Measured nested/recursive function
+  execution honors command-sequence budgets with captured sources. Macros,
+  returns, global outer-command/fork budgets and full syntax remain open.
 - [x] World save format parity (region files)
 - [~] RCON, query, properties parity (server.properties: read,
       completed with vanilla's defaults and rewritten byte for byte -
@@ -18682,3 +18683,12 @@ The dedicated wire fixture covers same-dimension ordinary death. Cross-dimension
 - **Pinned** — Four-file SHA256 `c76f5f4541f5d5118915358177b5eca113fd061aaae9f86338a52a269ea41ad9`, base d5f80a6. Final 44-control native/Go differential PASS 18.32s (native 3.91s, Go 3.88s), including actual :noon/:wake_up_from_sleep command aliases from multiple starting totals. Exact typed marker feedback, nonempty clock counts/IDs/values and rejected-input behavior are pinned; unrelated age-only updates are filtered. Existing TestTimeCommandParity PASS 44.42s. Immutable build/vet, focused units 0.206s and both tagged compilation gates PASS. Sources/provenance: `work/timearguments-slice.md`, `work/timearguments-stage/manifest.json`; final log `work/timearguments-after-wire-v2.log`. The initial strong fixture counted unrelated empty clock rows and failed on both servers; that log is retained.
 
 Custom resources, complete malformed/extra-token precedence, delimiter handling and completion replacement ranges remain separate. Periodic builtin support does not claim complete time-command grammar.
+
+
+## Slice — bounded function execution and captured sources (2026-10-30)
+
+- **Measured** — Native flat/nested/recursive/error/tag and execute/fork controls establish action costs: direct nested function lines have already paid their call unit, pure execute-run redirects collapse, modifier leaves consume actions and runtime failures do not necessarily abort following lines. Captured function sources retain origin despite actual teleports. Java 26.2/JDK 25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`; native logs and exact sources are listed in `work/function-budget-manifest.md`.
+- **Implemented** — Replace recursive function dispatch with an explicit simulation-owned stack, lazy line/member continuations, per-call source snapshots and a budget-bounded pending frontier. Discard only work whose minimum cost makes it unreachable. Registered manual/tag, startup/tick, scheduled and reward calls share the executor. Actor-bound frames and temporary legacy bindings preserve executor/origin semantics without reversing actual movement.
+- **Pinned** — Eleven-file SHA256 `73823025d4740ce15e10001e9c92011606857a98b420cf488ac8686cf973022e`, base d5f80a6 plus independently committed scoreboard/teleport prerequisites. Strict native/Go wire PASS 75.20s: all 96 small-budget controls, queued mob sources, actual fixed-source final Pos (10.5, -58, 8.5), and default 65536 actions yielding 32768 recursive increments with no tails. Full build/vet/tagged compile PASS; affected units PASS 1.354s. Frontier/default/allocation controls PASS 1.650s, including a 4096-line unreachable tail allocating 309504 bytes at budget 256 and a 4096-branch queue retaining only 32 reachable actions. Native regressions: tags 31.51s, real persisted scheduling 75.15s, pack rewards 157.80s, actual pickup/menu reward callback 27.23s. All final gates completed with observed exit 0.
+
+The earlier v5 FAIL 69.89s remains recorded: a test client corrupted relative teleport positions, and hidden scoreboard spam disconnected Go during the full-budget recursion. Separate measured fixes retain both exact assertions. This slice does not claim a complete native execution framework: outer command forks do not yet share one root budget, max_command_forks/return/macros/full parser continuations remain open, and function permission configuration remains the existing level 2. Full manifest and logs: `work/function-budget-manifest.md`, `work/function-budget-final-wire.log`.
