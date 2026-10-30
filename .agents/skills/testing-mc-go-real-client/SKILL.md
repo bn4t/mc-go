@@ -223,3 +223,13 @@ loaded attributes: native walking ability overrides movement base after raw
 attribute load, with float32-to-double widening. Use actual ability packets and
 finite player-tick expiry checks in both native/Go handoff directions. Keep
 finite JSON compatibility and test explicit lossless nonfinite encoding.
+
+
+## Save writer versus loader evidence
+
+A native server successfully loading a Go-written save establishes compatibility
+of that output. It does not establish that Go can restore the same records.
+Keep writer and loader coverage explicit, and test actual remaining lifetime
+and expiry after each supported restart direction. If startup needs a longer
+fixture delay, first assert the original saved value, copy the completed save,
+and modify only the copy. Preserve the original artifact and its assertions.

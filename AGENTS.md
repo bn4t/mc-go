@@ -110,6 +110,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   A preexisting file is not a completion receipt: verify new identifiers, types
   and deadlines. Save workers serialize detached snapshots captured by the
   simulation owner, never mutable runtime queues.
+- Distinguish writer compatibility from loader support. Native readback of a
+  Go save proves the written format and native behavior; Go restart preservation
+  needs its own loading/expiry controls. Assert original deadlines before changing
+  a copied fixture to allow startup time.
 - Decode unordered registry-keyed state by ID while retaining strict counts,
   duplicate/missing-ID checks and typed value assertions. Positional map order
   is not a clock synchronization guarantee.

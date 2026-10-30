@@ -590,7 +590,8 @@ func TestJavaEntityEffectFanoutUsesViewerProfiles(t *testing.T) {
 	s := simulationTestServer(t)
 	old := entityViewer(t, s, 775, "OldEffect")
 	current := entityViewer(t, s, 776, "NewEffect")
-	s.simulationAction(func() { s.sendMobEffectUpdateFlags(old, effectSpeed, 2, 200, 14) })
+	// Establish an active effect: an update packet alone has no state to remove.
+	s.simulationAction(func() { s.applyMobEffectWire(old, effectSpeed, 2, 200, false, 14) })
 	for _, viewer := range []*Session{old, current} {
 		body := entityPacketOf(t, entityPackets(t, viewer), viewer.ids().PlayUpdateMobEffect)
 		r := protocol.NewPacketReader(body)
