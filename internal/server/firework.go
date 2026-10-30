@@ -128,6 +128,9 @@ func parseFireworkExplosionSNBT(vtag *snbtTag) (string, bool) {
 		return "", false
 	}
 	shape := "small_ball"
+	if _, present := vtag.vals["shape"]; !present {
+		return "", false
+	}
 	if sv, ok := vtag.vals["shape"]; ok {
 		if sv.kind != snbtString {
 			return "", false

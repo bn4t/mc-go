@@ -1503,3 +1503,6 @@ Native cat hydration restores known variant and sound holders. Missing fields re
 
 
 Natural swamp-hut piece flags emit a witch/cat descriptor once. The simulation owner admits both persistent residents, including with frozen world time and natural spawning disabled. Native save first reconciles scheduled retirement, then drains already-generated residents before its snapshot; a loaded-world restart preserves the pair without duplicates. Exact entity RNG replay and generation completing concurrently with capture remain outside the proof.
+
+
+Firework command/native readers require an explosion shape. Rocket flight and explosion lists are optional; an explicit empty rocket is represented separately from absence. Typed slot controls pin admission and retained state, not all diagnostics or numeric codec bounds.

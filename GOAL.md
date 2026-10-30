@@ -19573,3 +19573,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Pinned** — Live differential plus native-world Go restart PASS 47.74s; immediate-save control PASS 33.43s; existing hut layout/reference/flag regression PASS 116.68s. Lifecycle/queue units and finite-value assertions pass. Eleven-file artifact 78e4d809e96d6f473b05b7be205dbe5ea74234cf8c29b037f7498a434860c6d2. No old-world retroactive repair, exact entity RNG replay or concurrent-generation snapshot guarantee.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
+
+
+## Slice — firework component required and optional fields (2026-10-30)
+
+- **Measured** — Native command controls reject missing explosion shape, including rocket children, but accept empty, flight-only and explosions-only rocket components. Each attempt has a verified diamond-count sentinel and independently expected typed post-command slot state.
+- **Implemented** — Require explosion shape; default omitted rocket flight to zero and explosions to empty. Preserve explicit empty rocket versus absent component during native reads.
+- **Pinned** — Seven-form differential PASS 23.74s; shape regression PASS 30.10s; jukebox regression PASS 29.92s; reader units, build, vet and tagged compilation pass. Four-file artifact 189c2a751d5912c98114d301668eed1e7ba53fad3b4e34102673fbf2fb83896f. Diagnostic text, cursors and unmeasured numeric bounds remain outside this pin.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.

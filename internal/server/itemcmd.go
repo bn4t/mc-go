@@ -1410,21 +1410,27 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			if vtag.kind != snbtCompound {
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
-			fv, ok := vtag.vals["flight_duration"]
-			if !ok || fv.kind != snbtNumber {
-				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			fl := 0
+			if fv, present := vtag.vals["flight_duration"]; present {
+				if fv.kind != snbtNumber {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				var err error
+				fl, err = strconv.Atoi(strings.TrimRight(fv.num, "bBsSiIlLfFdD"))
+				if err != nil {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
 			}
-			fl, err := strconv.Atoi(strings.TrimRight(fv.num, "bBsSiIlLfFdD"))
-			if err != nil {
-				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
-			}
-			ev, ok := vtag.vals["explosions"]
-			if !ok || ev.kind != snbtList {
-				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			var explosions []*snbtTag
+			if ev, present := vtag.vals["explosions"]; present {
+				if ev.kind != snbtList {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				explosions = ev.items
 			}
 			var b strings.Builder
 			b.WriteString(strconv.Itoa(fl))
-			for _, e := range ev.items {
+			for _, e := range explosions {
 				exp, ok2 := parseFireworkExplosionSNBT(e)
 				if !ok2 {
 					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
