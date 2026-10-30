@@ -35,8 +35,8 @@ type ProtoChunk struct {
 	bePending map[BlockPos]bool
 	beReal    map[BlockPos]map[string]any
 	beOwner   map[BlockPos]string
-	// Entities are the entities features added to this chunk (the
-	// end spikes' crystals), spawned when the chunk is provided.
+	// Entities are the feature/structure entities generated into this chunk,
+	// admitted by the server when the chunk is provided.
 	Entities []GenEntity
 }
 

@@ -415,9 +415,13 @@ func (s *Server) restoreEndCrystal(d *dimension, save map[string]any, pos [3]flo
 }
 
 // spawnGenEntities adds the entities a provided generated chunk carried
-// (the end spikes' crystals) to the level.
+// (End spike crystals and structure residents) to the level.
 func (s *Server) spawnGenEntities(d *dimension, ents []worldgen.GenEntity) {
 	for _, g := range ents {
+		if g.Structure == "swamp_hut" {
+			s.spawnHutResident(d, g)
+			continue
+		}
 		if g.Type != "end_crystal" {
 			continue
 		}

@@ -1500,3 +1500,6 @@ component coverage and parser admission rules remain separate work.
 
 
 Native cat hydration restores known variant and sound holders. Missing fields retain existing body values; a fresh body defines black/classic. Spawn metadata omits those defaults and later tabby changes emit the matching holder. Loaded observer lifecycle and arbitrary custom holders remain unproved.
+
+
+Natural swamp-hut piece flags emit a witch/cat descriptor once. The simulation owner admits both persistent residents, including with frozen world time and natural spawning disabled. Native save first reconciles scheduled retirement, then drains already-generated residents before its snapshot; a loaded-world restart preserves the pair without duplicates. Exact entity RNG replay and generation completing concurrently with capture remain outside the proof.

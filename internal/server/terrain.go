@@ -54,7 +54,7 @@ type terrainSource struct {
 	// fresh lists handed-out chunks whose post-processing has not run.
 	freshMu sync.Mutex
 	fresh   [][2]int
-	// genEntities are the feature-placed entities (end spike crystals)
+	// genEntities are the feature/structure entities (crystals and residents)
 	// of chunks handed out since the last drain (drainGenEntities).
 	genEntities []worldgen.GenEntity
 }

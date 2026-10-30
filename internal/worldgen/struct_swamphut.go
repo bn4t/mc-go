@@ -8,7 +8,7 @@ import "sync"
 // average ground height of the first decorating chunk, with oak log
 // stilts filled down from y -1. The witch and the cat (spawnedWitch /
 // spawnedCat, set when the cell (2, 2, 5) lies in the decorating box)
-// are entities and are not spawned; their flags are kept.
+// produce resident descriptors once; the server finalizes and admits them.
 
 var swampHutBlueprint = sync.OnceValue(func() blueprint {
 	return parseBlueprint(map[string]string{
@@ -83,12 +83,20 @@ func (p *swampHutPiece) PostProcess(c *PieceContext) {
 			p.fillColumnDown(c, log, x, -1, z, bb)
 		}
 	}
-	in := bb.IsInside(p.worldPos(2, 2, 5))
+	position := p.worldPos(2, 2, 5)
+	in := bb.IsInside(position)
+	resident := func(name string) {
+		if chunk := c.Region.chunkAt(position[0], position[2]); chunk != nil {
+			chunk.Entities = append(chunk.Entities, GenEntity{Structure: "swamp_hut", Type: name, X: float64(position[0]) + .5, Y: float64(position[1]), Z: float64(position[2]) + .5})
+		}
+	}
 	if !p.witch && in {
 		p.witch = true
+		resident("witch")
 	}
 	if !p.cat && in {
 		p.cat = true
+		resident("cat")
 	}
 }
 

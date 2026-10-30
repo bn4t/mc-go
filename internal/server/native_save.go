@@ -130,6 +130,9 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 	// Publish any completed retirement before packing a later full save.
 	// Otherwise a completed cold write could be overwritten by aged resident rows.
 	s.scheduledRetirementOwned(false)
+	// Complete admitted generation before capturing piece flags and entities.
+	// This does not generate chunks or consume natural-spawn/End queues.
+	s.structureGenEntityStep()
 	sx, sy, sz := s.WorldSpawn()
 	rules := map[string]string{}
 	s.rulesMu.RLock()

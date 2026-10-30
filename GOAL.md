@@ -19564,3 +19564,12 @@ no new full differential or real-client soak claim is made for this small merge.
 - **Pinned** — Native-write to native/Go-load control PASS 69.96s; fresh-body wire control PASS 25.28s; focused units PASS 0.114s and both build modes compile. Six-file artifact beb0294edbb12ad25bcc62d1a747a576d90192cb3d9c284c9aea8c7323e4ebab. Loaded observer lifecycle remains unproved; the older salmon air mismatch reproduces before this change and is not repaired here.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
+
+
+## Slice — natural swamp-hut residents and immediate save (2026-10-30)
+
+- **Measured** — Native seed 12345 generates a persistent witch and all-black cat at (-2381.5,66,-1386.5), including with time frozen and natural spawning disabled. A completed immediate save includes both residents and one-time piece flags before shutdown.
+- **Implemented** — Generate resident descriptors once, admit them on the simulation owner, and drain already-generated residents before native snapshot capture. Keep scheduled retirement reconciliation before the resident drain; preserve the existing End crystal path.
+- **Pinned** — Live differential plus native-world Go restart PASS 47.74s; immediate-save control PASS 33.43s; existing hut layout/reference/flag regression PASS 116.68s. Lifecycle/queue units and finite-value assertions pass. Eleven-file artifact 78e4d809e96d6f473b05b7be205dbe5ea74234cf8c29b037f7498a434860c6d2. No old-world retroactive repair, exact entity RNG replay or concurrent-generation snapshot guarantee.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.

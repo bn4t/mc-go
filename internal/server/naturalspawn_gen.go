@@ -44,6 +44,7 @@ func (s *Server) queueChunkGenSpawn(dim string, cx, cz int, biome string) {
 // runs on the wall tick too: chunk generation is not paused by /tick
 // freeze, and neither are its spawns.
 func (s *Server) chunkGenSpawnStep() {
+	s.structureGenEntityStep()
 	st := &s.naturalSpawn
 	st.genMu.Lock()
 	pend := st.genPending

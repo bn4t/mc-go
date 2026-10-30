@@ -363,10 +363,11 @@ func (s endfSpike) placeWith(minY int32, at func(BlockPos) world.Block, set func
 	return yaw
 }
 
-// GenEntity is an entity a feature added to the chunk holding its
-// position (WorldGenRegion.addFreshEntity); the server spawns it when
-// that chunk is handed out. Only the end spikes' crystals use it.
+// GenEntity is an entity a feature or structure piece added to the chunk
+// holding its position. The server admits it after that chunk is handed out.
 type GenEntity struct {
+	// Structure identifies a structure-specific finalization family.
+	Structure    string
 	Type         string
 	X, Y, Z      float64
 	Yaw          float32
