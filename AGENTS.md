@@ -140,6 +140,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - For native method experiments with injected state, list every injected field
   and distinguish method behavior from real construction/world admission. Test
   reset followed by movement before sampling; do not infer reset semantics.
+- Damage-source bypass checks must use the responsible cause/direct identity,
+  not kill-credit attribution. Pin health, feedback and command success/result
+  stores independently; rejected damage need not reject physical contact.
 - Pair raw/effective attribute queries with the physical consumer outcome. For
   healing, clear prior instant effects and observe actual player ticks before
   asserting Health; raising a maximum alone does not heal.

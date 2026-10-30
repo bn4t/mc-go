@@ -371,3 +371,9 @@ Pair splash no-status assertions with a positive noninstant effect on the same
 recipient. Actual held-item consumption, projectile retirement and exact food
 pools separately constrain the player's result; a missed throw proves nothing
 about instantaneous dispatch.
+
+
+Damage-source exceptions use the actual responsible entity, independently of
+kill credit. Retain creative/survival/spectator causes and bypass-tag controls,
+and check health, feedback and numeric result stores together. Measure physical
+contact separately: a rejected hurt callback can still allow native dismount.

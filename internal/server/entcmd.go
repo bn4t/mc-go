@@ -616,7 +616,12 @@ func (s *Server) runDamage(player string, args []string) reply {
 			return errToken("command.unknown.argument", 4)
 		}
 	}
-	return s.applyDamageCommand(sender, target, amount, dmgType, directEnt, causeEnt, hasAt, atPos)
+	r := s.applyDamageCommand(sender, target, amount, dmgType, directEnt, causeEnt, hasAt, atPos)
+	r.hasResult = true
+	if r.outcome == commandSucceeded {
+		r.result = 1
+	}
+	return r
 }
 
 // applyDamageCommand deals the hit and answers success/invulnerable.
@@ -658,6 +663,10 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 		}
 		return opsEchoReply(translatable("commands.damage.success", nestedCompound{key: "", value: amount}, target.nameComp()))
 	}
+	info := &damageInfo{typeName: dmgType, cause: causeID, direct: srcID, hasPos: hasAt, x: atPos[0], y: atPos[1], z: atPos[2]}
+	if s.mobInvulnerableTo(mob, dmgType, info) {
+		return componentReply(commandError("commands.damage.invulnerable"))
+	}
 	// Vanilla's DamageSource falls back to the direct entity when no
 	// `from` cause is given — `by @s` provokes just like a punch.
 	var killer *Session
@@ -667,9 +676,7 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 		killer = direct.sess
 	}
 	// dealDefaultKnockback runs inside damageMob for the landed hit.
-	_, _, died := s.damageMob(mob, amount, dmgType, killer,
-		&damageInfo{typeName: dmgType, cause: causeID, direct: srcID,
-			hasPos: hasAt, x: atPos[0], y: atPos[1], z: atPos[2]})
+	_, _, died := s.damageMob(mob, amount, dmgType, killer, info)
 	_ = died
 	return opsEchoReply(translatable("commands.damage.success",
 		nestedCompound{key: "", value: amount}, target.nameComp()))

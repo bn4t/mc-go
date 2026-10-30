@@ -4690,6 +4690,9 @@ func (s *Server) markHurt(e *Entity, typeName string) {
 // EnderMan's override handles the projectile-teleport tries and the
 // 9/10 contact teleport after non-projectile damage.
 func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *Session, info *damageInfo) (dealt float32, graced, died bool) {
+	if s.mobInvulnerableTo(e, typeName, info) {
+		return 0, true, false
+	}
 	if kn, _ := EntityTypeName(e.Type); kn == "enderman" {
 		return s.enderHurtServer(e, amount, typeName, killer, info)
 	}

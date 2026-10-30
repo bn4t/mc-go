@@ -1352,3 +1352,10 @@ world freeze. Packed head-yaw changes fan out to tracked observers; unchanged
 yaw stays silent even when pitch changes. Presence-only incarnations retain
 their capability boundary. Body packet selection and precise tracker phase,
 ground, rider and teleport behavior remain separate work.
+
+
+Ordinary server NPC damage honors the saved Invulnerable flag before species
+dispatch. Bypass-tagged damage and an actual creative-player cause can bypass
+it; kill-credit identity cannot. Damage commands expose numeric results for
+accepted/rejected flag controls. Direct Manager/TNT and specialized dragon-part
+paths, unrelated cooldown outcomes and kinetic physical contact remain separate.

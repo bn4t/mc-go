@@ -19181,3 +19181,12 @@ Failed diagnostics are retained: correct food/no-status with a surviving cloud e
 - **Pinned** — Actual-use differential PASS29.59s, existing splash geometry52.44s, units0.262s/race6.456s/related2.294s, vet/default compile0.080s/tagged build PASS. Tests retain exact food pools, positive NPC Glowing, absent Saturation, consumed item and retired projectile. Sources/final exits: work/saturation-splash-stage/.
 
 These controls do not establish every splash geometry, amplifier or recipient type. Arrows retain their distinct stored-effect delivery.
+
+
+## Slice — saved NPC invulnerability and damage command results (2026-10-30)
+
+- **Measured** — Eight native villager controls establish ordinary damage, saved-flag rejection, generic_kill/out_of_world bypass and survival/creative/spectator source behavior. Actual creative causes bypass the flag; kill-credit attribution does not. Accepted damage5 changes100 to95; rejected attempts retain100 and emit commands.damage.invulnerable. Wire/command observations, Java26.2/JDK25.0.5+8, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Reject flagged targets before ordinary server species damage dispatch, respecting bypass tags and actual responsible source identity. Damage commands expose measured numeric success1 or runtime failure0 after leaf execution. Five-file patch SHA256 375b95b0d9c81316f29c1535398f05700a74db1e1360ed90edff9fc4892abc8f.
+- **Pinned** — Strict eight-case native/Go health/reply/success-store/result-store comparison PASS31.17s; focused units0.092s, existing positional damage22.26s and item damage17.49s, tagged build PASS. The first strict test exposed an existing missing successful command result; that failure and unchanged assertion are retained. Exact sources and final exits: work/mob-invulnerable-manifest-v2.md.
+
+Coverage is Server.damageMob and its command integration. Direct Manager/TNT and specialized dragon-part paths, other hurt-cooldown command semantics, and spear physical-contact preflight remain separate.
