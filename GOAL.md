@@ -19089,3 +19089,10 @@ Runtime coverage is a mounted survival holder with default wooden spear against 
 - **Pinned** — New differential PASS38.04s(native9.71/Go10.39), existing custom potion drinking51.17s, focused units2.539s/race13.072s, vet/default compile0.469s and tagged build PASS. Tests assert consumed bottle, exact food pools and absence of a stored status together. Final exits and source manifest: `work/saturation-drink-stage/`.
 
 Splash/cloud direct dispatch and arrow stored-status origins remain separate. This does not establish arbitrary amplifier or all-origin parity.
+
+
+## Slice — complete world-command response capture (2026-10-30)
+
+- **Measured** — The old fixed500ms capture windows returned three empty Go captures, then attributed their correctly ordered replies to the fourth command during initial world work. The original failure remains in `work/scheduled-policy-regression-TestWorldCmdParity.log`.
+- **Implemented** — Use exact decoded readiness and per-command say receipts, omitting only the fixture's own marker packets. All67 commands and normalized response comparisons remain unchanged. Test-only patch SHA256 `e6fc740b18b6306244b4b12ae37582db9ac5a3521864394753db2fee0c1633a2`.
+- **Pinned** — Native26.2/Go comparison PASS42.69s, actual final exit0; source hashes and scope in `work/worldcmd-barrier-slice.md`. This repairs reply attribution and makes no production-behavior change.

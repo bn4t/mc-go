@@ -1,6 +1,7 @@
 package blackbox
 
 import (
+	"fmt"
 	"regexp"
 	"testing"
 	"time"
@@ -101,15 +102,23 @@ func TestWorldCmdParity(t *testing.T) {
 		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
 		sink := newChatSink(pr, pw)
 		sink.cap = 1 << 20
-		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "say WORLD_COMMAND_READY")
+		waitForExactSayBB(t, sink, "WORLD_COMMAND_READY", 10*time.Second)
 		var out [][]string
 		for i, cmd := range cmds {
 			sink.take()
 			t.Logf("send %d %q", i, cmd)
 			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
-			time.Sleep(500 * time.Millisecond)
+			// A command reply can arrive after a fixed wall-clock window during
+			// initial chunk work. Keep each complete reply with its own command.
+			marker := fmt.Sprintf("WORLD_COMMAND_END_%d", i)
+			sendCommand(t, pw, "say "+marker)
+			lines := waitForExactSayBB(t, sink, marker, 10*time.Second)
 			var evs []string
-			for _, line := range sink.take() {
+			for _, line := range lines {
+				if structureSaidBB([]string{line}, marker) {
+					continue
+				}
 				if tree, ok := componentTree(line, true); ok {
 					tree = numRe.ReplaceAllString(maskUUID(tree), "N")
 					tree = buildRe.ReplaceAllString(tree, `commands.version.build_time", "with": [BT]`)
