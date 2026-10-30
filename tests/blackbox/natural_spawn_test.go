@@ -153,8 +153,8 @@ func TestNaturalSpawnArenaParity(t *testing.T) {
 		// The vanilla harness world is level-seed=1: slime chunks and
 		// the biome zoom both key on the seed.
 		s.WorldSeed = 1
-		// A max-speed sprint with 70+ tracked mobs outruns the default
-		// 256-packet outbound queue whenever the test client reads
+		// A max-speed sprint with 70+ tracked mobs can outrun the default
+		// outbound packet queue whenever the test client reads
 		// slowly (a loaded machine); vanilla's netty buffer is unbounded.
 		s.OutboundPacketLimit = 1 << 16
 		s.OutboundByteLimit = 512 << 20

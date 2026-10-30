@@ -19460,3 +19460,12 @@ The wire check allows one unit of final scaled-floor rounding at1e6 scale; basis
 - **Pinned** — `TestJavaEntityCreeperMetadataMatchesSchema` runs spawn and dirty creeper metadata through the 26.2 schema projector and requires accessor 16. It fails on the old writer (`invalid minecraft:creeper metadata accessor 18 serializer 1`) and passes on the fix. The internal unit suite passes except `TestJSetMatchesJava`, which needs a Java runtime that this workstation lacks. No differential blackbox run: this workstation has no vanilla jar or JDK.
 
 DATA_IS_IGNITED (18) is still never sent, so flint-and-steel ignition is not visible to clients. The dirty diff starts from swell direction 0, not vanilla's -1 default, so mc-go sends one extra -1 update that vanilla omits.
+
+
+## Slice — outbound packet budget for survival entity traffic (2026-10-30)
+
+- **Measured** — A real 26.2 client in a `-level-type normal` survival world was reset at 17:05:19. The new drop log reported `client outbound budget exceeded (256 packets, 2304 bytes queued)`: 256 small packets averaging 9 bytes, far below the 8 MiB byte budget. The natural-spawn blackbox fixture had already raised the count limit for 70+ tracked mobs and noted that vanilla's netty queue is unbounded. Wire observation only; no bytecode inspection.
+- **Implemented** — The default per-connection count bound rises from 256 to 4096 packets. The 8 MiB byte budget, five-second write deadline and FIFO-order guarantees are unchanged. Play-stage read failures other than EOF or closed connections are now logged with the player name, alongside the existing outbound drop logging.
+- **Pinned** — Outbound unit tests (explicit small limits, join burst, overflow cleanup, write deadline, compression FIFO) and the full `internal/server` (171.5s) and public `server` suites PASS; build, vet and tagged blackbox compilation PASS. Not yet validated over a long real-client session, and no differential blackbox run: this workstation has no vanilla jar or JDK.
+
+The count bound is still a disconnect policy that vanilla lacks. A writer stalled behind a slow socket or chunk future can still exhaust either budget.

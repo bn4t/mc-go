@@ -1,7 +1,11 @@
 package server
 
 import (
+	"errors"
+	"io"
+	"log"
 	"math"
+	"net"
 	"strings"
 	"time"
 
@@ -24,6 +28,9 @@ func (s *Server) handlePlay(sess *Session) {
 	for {
 		p, err := sess.pr.ReadPacket()
 		if err != nil {
+			if !sess.closing.Load() && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+				log.Printf("%s dropped: read: %v", sess.getName(), err)
+			}
 			return
 		}
 		// Any packet proves liveness; keep-alive echoes feed the
