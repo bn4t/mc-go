@@ -19062,3 +19062,12 @@ Compiled leaves are basic function/tag calls without macro arguments, scoreboard
 - **Measured** — Verify immutable commit a0cbb59 from git archive, excluding all concurrent work. This includes known-speed sampling, Java rotation normalization, angle-byte encoding, slime damping, instantaneous status delivery and parsed execute budgets.
 - **Implemented** — No additional runtime changes; record the clean integration gate after execution recovery.
 - **Pinned** — Build/vet PASS; blackbox tagged compilation0.495s PASS. Full default repository suite PASS with internal/server433.901s, world1.459s, worldgen59.095s, public server24.315s and default blackbox173.190s; all other packages pass. Session4038 exited0, log `work/verified-a0cbb59.log`. Individual native differential gates remain recorded in their slices; this is not a claim of full native-suite, GUI or realistic-load coverage.
+
+
+## Slice — experience-orb ground response and float damping (2026-10-30)
+
+- **Measured** — Native first-tick controls cover stone/slime, both gravity states, four contact gaps, effective-gravity thresholds, horizontal friction and air motion. Later orb floor response uses incoming pre-move Y and a strict effective-gravity comparison; drag and ground friction preserve float precision. Baseline42 native cases and vibration controls pass while Go has46 failing velocity components. Wire/public constant facts, Java26.2/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — A dedicated orb movement tail preserves common collision, restitution and block effects, then applies float damping and the measured floor response. Shared slime prerequisite d254ebf remains independent. Four-file patch SHA256 `59c4293631fb27718787010a95c75d980b46223550ac2dd49e1794663286c669`.
+- **Pinned** — Strict42-case differential plus slime vibration frequency/active-state controls PASS89.40s; named units1.686s, race3.532s, default compile0.112s and tagged build PASS. Existing merge/follow/count/pickup regression PASS37.21s(native12.81/Go12.50). Source hashes and final exits verified in `work/orb-physics-fixed-stage/manifest.json`; interrupted baseline retained separately.
+
+Coverage is ordinary air and full-cube stone/slime contact. Embedded escape, fluid motion, hard-entity collisions and broader movement overrides remain separate.

@@ -668,22 +668,7 @@ func (s *Server) itemTickStep() {
 					}
 				}
 			}
-			s.entityMove(e, w, 0.25, 0.5, e.MotionX, e.MotionY, e.MotionZ, 0.03, 0.98, false)
-			f := 0.98
-			if e.Grounded {
-				f *= entityFrictionBelow(w, e.X, e.Y, e.Z)
-			}
-			e.MotionX *= f
-			e.MotionY *= f
-			e.MotionZ *= f
-			// ExperienceOrb.tick's rest-bounce gates on the post-move
-			// delta (onGround && delta.y < -gravity): restitution has
-			// already zeroed delta.y on non-bounce blocks, so the flip
-			// never fires on stone/honey — only slime's >0 restitution
-			// skips it identically.
-			if e.Grounded && e.MotionY < -0.03 {
-				e.MotionY = -e.MotionY * 0.4
-			}
+			s.moveExperienceOrb(e, w)
 		} else if !orb {
 			// ItemEntity.tick: Entity.tick's updateFluidInteraction ran
 			// its current push; then the submersion branch replaces

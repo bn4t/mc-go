@@ -1292,3 +1292,10 @@ with a one-tick default. Stored Health/Harm instances deliver through living
 ticks, including undead inversion; storing or declining an instance adds no
 extra dose. Direct scaled potion APIs remain separate. The complete built-in
 instantaneous classifier is reproduced by tools/probeinstanteffects.
+
+
+Experience-orb movement retains shared collision, restitution and vibration
+effects, then applies promoted float drag/friction and its separate floor
+response. That response compares incoming vertical velocity with effective
+gravity, including NoGravity. Ordinary air and stone/slime contacts are pinned;
+embedded escape and fluid-specific movement remain separate.
