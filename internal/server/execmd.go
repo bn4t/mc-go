@@ -2089,7 +2089,7 @@ func (s *Server) executeAim(ctx *executeContext, player, kind string, args []str
 		if args[2] != "eyes" && args[2] != "feet" {
 			return errToken("argument.anchor.invalid", tokBase+2, args[2])
 		}
-		return s.forkOver(ctx, player, append([]string{args[1]}, args[3:]...), tokBase+1)
+		return s.executeFacingEntities(ctx, player, args[1:], tokBase+1)
 	}
 	need := 2 // rotated <yaw> <pitch>
 	if kind == "facing" {
@@ -2098,12 +2098,15 @@ func (s *Server) executeAim(ctx *executeContext, player, kind string, args []str
 	if len(args) < need {
 		return errToken("parsing.double.expected", tokBase+len(args))
 	}
+	var target [3]float64
 	for k := 0; k < need; k++ {
 		// rotated's yaw/pitch are RotationArgument (no centering);
 		// facing's position is vec3() — x/z center, y does not.
 		base := float64(0)
 		if kind == "rotated" {
 			base = float64(ctx.rotation[k])
+		} else {
+			base = ctx.pos[k]
 		}
 		value, err := parseDouble(args[k], base, need == 3 && k != 1)
 		if err != nil {
@@ -2111,7 +2114,12 @@ func (s *Server) executeAim(ctx *executeContext, player, kind string, args []str
 		}
 		if kind == "rotated" {
 			ctx.rotation[k] = float32(value)
+		} else {
+			target[k] = value
 		}
+	}
+	if kind == "facing" {
+		ctx.rotation = s.executeFacingRotation(ctx, target)
 	}
 	return s.execTail(ctx, player, args[need:], tokBase+need)
 }

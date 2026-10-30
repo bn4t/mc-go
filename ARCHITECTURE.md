@@ -1482,8 +1482,11 @@ accrual/thaw remains world-bound and requires separate player-frame integration.
 Local teleport coordinates use independently synthesized periodic float32
 trigonometry and a measured float32 basis before widening components. Public
 numeric corpora pin every sine sample and representative basis outputs; command
-wire controls pin their consumer. Facing-angle interpolation and global entity
-physics retain their separate implementations and remaining precision limits.
+wire controls pin their consumer. Execute-facing now updates the source's
+rotation for numeric targets and forks entity feet/eyes orientations without
+replacing its executor. Its independent public-observation numerical model is
+pinned at command float-degree outputs; arbitrary extreme inputs, broader
+execute planning and global physics math remain separate limits.
 
 
 Food exhaustion spends only when strictly above four; an exact four remains

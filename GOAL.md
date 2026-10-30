@@ -19499,3 +19499,12 @@ This retires scheduled containers, not all backend blocks, entities or block ent
 - **Pinned** — Strict typed native comparison PASS10.12s; jukebox regression16.99s PASS. The existing real disk/ejection harness now includes small-ball and mixed child shapes; all Jukebox units PASS0.503s, build/vet/tagged compilation PASS. Evidence: work/native-firework-shape-stage/manifest.json and work/native-firework-shape-slice.md.
 
 Common item firework fields and required/optional parser admission remain separate follow-ons. The shape fix does not establish complete firework codec parity.
+
+
+## Slice — execute-facing source rotation (2026-10-30)
+
+- **Measured** — Native execute-facing updates source orientation toward numeric or entity feet/eyes targets while retaining source position/executor. Public API observations pin12 reciprocal-root doubles,10257 angular float-degree outputs and283 actual source-facing yaw/pitch pairs, including coincident/cardinal/signed-zero/near-vertical controls. Java26.2/Temurin25.0.5+8; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8, fixture SHA256 3e1c5089e7cef7af93817e3cb2898f15b59fad8f715e737a03383cbde9aac81b.
+- **Implemented** — Make the existing facing grammar actually update numeric-target source rotation and fork entity-target orientations without replacing the executor. An independently derived complex-phase model preserves measured command float-degree results; no native method body or structure was read or transcribed. Eight-path patch SHA256 4996b4ef77cf4b994d324fd25f26b360e0aea7314bd5764d984baadbcd2b6a7d.
+- **Pinned** — New native command comparison PASS14.87s across direct/entity, nested-file, two-target, feet/eyes and local-projection controls. Unchanged anchor23.92s/dimension31.20s regressions PASS. Nine named numeric/local/source/eye units PASS0.294s with10549 unique input keys and repeated-input consistency checks; build/vet/tagged compilation PASS. Reproduction and independent seed derivation: tools/probefacingmath/README.md; evidence: work/facing-source-manifest.md.
+
+This uses the existing legacy execute fallback and retains its fork/failure/budget limits. No new grammar, global physics trig, arbitrary extreme/nonfinite domain or exact intermediate atan-bit claim is made. Public finite observations establish the measured command consumers, not all possible numerical inputs. Earlier skipped/misconfigured runs are excluded from evidence.

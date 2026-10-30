@@ -299,3 +299,10 @@ Local command-coordinate numerics are reproduced with
 corpus; independent Go geometry must match declared float widths and phase
 boundaries. Keep complete sample membership checks and a command-consumer wire
 pin. Basis equality alone does not prove arbitrary weighted-sum ordering.
+
+
+Facing-command numerical facts are reproduced with
+`tools/probefacingmath/README.md`, including an independent constant derivation.
+Keep source position/executor distinct from selected facing targets. Record the
+measured finite command domain; matching float-degree consumers does not imply
+bit-identical intermediate atan values or arbitrary nonfinite behavior.
