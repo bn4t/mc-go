@@ -47,6 +47,11 @@ func (w *World) captureDimensionSave(minY, height int, entities func(cx, cz int)
 			s.includeChunk(chunkKey{int32(k[0]), int32(k[1])})
 		}
 	}
+	return w.captureDimensionColumns(s, entities, lights)
+}
+
+func (w *World) captureDimensionColumns(s *DimensionSaveSnapshot, entities func(cx, cz int) []map[string]any, lights func(cx, cz int) *ChunkLight) *DimensionSaveSnapshot {
+	minY, height := s.minY, s.height
 	for _, keys := range s.regions {
 		for _, key := range keys {
 			cx, cz := int(key.X), int(key.Z)

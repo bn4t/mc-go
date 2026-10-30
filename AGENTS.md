@@ -182,6 +182,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   A preexisting file is not a completion receipt: verify new identifiers, types
   and deadlines. Save workers serialize detached snapshots captured by the
   simulation owner, never mutable runtime queues.
+- Selective-save probes must change an unselected live neighbor and verify its
+  prior disk bytes/timestamp survive. Read selected terrain and queued work with
+  native before claiming writer compatibility. Serialize all same-region writers;
+  selective storage support does not establish runtime unloading or IO fencing.
 - Distinguish writer compatibility from loader support. Native readback of a
   Go save proves the written format and native behavior; Go restart preservation
   needs its own loading/expiry controls. Assert original deadlines before changing

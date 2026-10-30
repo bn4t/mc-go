@@ -1450,3 +1450,12 @@ Forceload reads the bound command-source level and origin. Execute-in scales
 source X/Z by the old/new level coordinate ratio in both primitive and batch-plan
 paths, retaining Y, rotation, anchor and executor without moving the physical
 issuer. Forced-set responses remain distinct from actual chunk admission.
+
+
+Selective dimension snapshots capture only explicitly named columns and merge
+those records into existing regions, preserving untouched compressed bytes and
+timestamps. Empty selected tick lists clear stale work. Capture occurs under the
+simulation owner; callers must serialize all writers to the same region. Each
+region replacement is atomic, without fsync or multi-file transaction guarantees.
+This storage API is not yet bound to runtime chunk unloading. Untouched external
+records survive; selected oversized output and external-file cleanup remain open.

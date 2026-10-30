@@ -437,3 +437,9 @@ compare typed reply arguments. Two incorrect handlers can agree on the wrong
 world. Cover primitive and batch-plan function leaves, and position before/after
 execute-in to expose coordinate-scale order. Forced-set success is not a chunk
 readiness receipt.
+
+
+For selective chunk saves, mutate an unselected live neighbor and verify that
+its previous disk contents, compressed bytes and timestamp survive. Check native
+readback of the selected edit and queued work. Storage compatibility does not
+prove runtime unloading, same-region writer coordination or stale IO fencing.

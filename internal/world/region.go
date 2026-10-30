@@ -464,27 +464,9 @@ func (s *DimensionSaveSnapshot) writeDir(dir string) error {
 	}
 
 	for r, chunks := range s.regions {
-		payloads := map[chunkKey][]byte{}
-		for _, c := range chunks {
-			var raw bytes.Buffer
-			compound := capturedChunkNBT(int(c.X), int(c.Z), s.minY, s.height, s.chunks[c].blocks, s.biome, s.chunks[c].biomes, s.chunks[c].entities, s.chunks[c].light)
-			compound["block_ticks"] = savedTickList(s.chunks[c].ticks.Blocks)
-			compound["fluid_ticks"] = savedTickList(s.chunks[c].ticks.Fluids)
-			if st := s.chunks[c].structures; st != nil {
-				compound["structures"] = st
-			}
-			if err := nbt.WriteNamed(&raw, "", compound); err != nil {
-				return err
-			}
-			var zc bytes.Buffer
-			zw := zlib.NewWriter(&zc)
-			if _, err := zw.Write(raw.Bytes()); err != nil {
-				return err
-			}
-			if err := zw.Close(); err != nil {
-				return err
-			}
-			payloads[c] = zc.Bytes()
+		payloads, err := s.encodeChunkPayloads(chunks)
+		if err != nil {
+			return err
 		}
 		data := encodeRegion(payloads)
 		if data == nil {
@@ -499,6 +481,33 @@ func (s *DimensionSaveSnapshot) writeDir(dir string) error {
 		}
 	}
 	return nil
+}
+
+func (s *DimensionSaveSnapshot) encodeChunkPayloads(chunks []chunkKey) (map[chunkKey][]byte, error) {
+	payloads := make(map[chunkKey][]byte, len(chunks))
+	for _, c := range chunks {
+		var raw bytes.Buffer
+		chunk := s.chunks[c]
+		compound := capturedChunkNBT(int(c.X), int(c.Z), s.minY, s.height, chunk.blocks, s.biome, chunk.biomes, chunk.entities, chunk.light)
+		compound["block_ticks"] = savedTickList(chunk.ticks.Blocks)
+		compound["fluid_ticks"] = savedTickList(chunk.ticks.Fluids)
+		if chunk.structures != nil {
+			compound["structures"] = chunk.structures
+		}
+		if err := nbt.WriteNamed(&raw, "", compound); err != nil {
+			return nil, err
+		}
+		var compressed bytes.Buffer
+		zw := zlib.NewWriter(&compressed)
+		if _, err := zw.Write(raw.Bytes()); err != nil {
+			return nil, err
+		}
+		if err := zw.Close(); err != nil {
+			return nil, err
+		}
+		payloads[c] = compressed.Bytes()
+	}
+	return payloads, nil
 }
 
 // ReadRegionFile parses one .mca file into chunk NBT compounds keyed

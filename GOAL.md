@@ -19375,3 +19375,12 @@ Forced-set changes do not prove actual chunk loading/ticking readiness. Existing
 - **Pinned** — Extended native data-restoration comparison PASS15.59s(native4.97/Go1.78). Build/vet and named nested/disk-restart/component regressions0.456s PASS. Jukebox17.27s, real-server readback of Go block-entity saves32.69s and book editing/signing36.51s PASS. Exact damage/repair/name/trim and nested-content disk expectations remain unchanged. Evidence: work/native-container-components-stage/ and work/native-container-components-slice.md.
 
 This preserves modeled state; arbitrary unsupported components and full codec/error-boundary equivalence remain incomplete. The earlier disk failure is retained as evidence of the writer defect rather than hidden by a weaker expectation.
+
+
+## Slice — selective native chunk snapshots and region merge (2026-10-30)
+
+- **Measured** — Native RegionFileStorage public API updates one chunk while retaining its neighbor's exact compressed record and timestamp, including when the updated payload grows. Java26.2/Temurin25.0.5+8; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Evidence: work/native-region-subset.log.
+- **Implemented** — Capture explicitly selected columns without enumerating or materializing unrelated chunks. Merge detached snapshots into region files while preserving untouched compressed records and timestamps. Validate framing before atomic per-file replacement, retain permissions and reject unsupported oversized selected payloads. Five-file patch SHA256 255c2034bec5dcf233f6e91434e72e928275ed8fd3426c397f817bbf12e7d5fb.
+- **Pinned** — Full world package PASS0.371s, focused race1.415s, build/vet/tagged compilation PASS. Real native readback PASS13.49s: selected diamond and saved long-delay callback survive, while the unselected neighbor retains disk gold despite live iron. Units cover detached values, explicit tick clearing, compression variants, opaque neighbor data, malformed framing, repeated size bounds, permissions and failed oversized writes. Evidence: work/dimension-subset-manifest.txt and work/dimension-subset-native-wire.log.
+
+This is storage groundwork; runtime unload and IO-lane binding remain open. Callers must serialize all writers to a region. No fsync or multi-file transaction guarantee is added. Untouched external records and side files survive; selected external-to-internal replacement leaves the old side file unreferenced, and oversized external creation/cleanup remain unsupported.
