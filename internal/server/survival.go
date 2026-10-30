@@ -709,7 +709,7 @@ func (s *Server) itemTickStep() {
 			}
 			// Gravity/fluid acceleration precedes closest-space damping.
 			if inside {
-				setEmbeddedEntityEscapeVelocity(w, e, heightBox)
+				s.setEmbeddedItemEscapeVelocity(s.dims[e.Dim], e, heightBox)
 			}
 			resting := e.Grounded &&
 				e.MotionX*e.MotionX+e.MotionZ*e.MotionZ <= 1e-5 &&

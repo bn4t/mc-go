@@ -9,6 +9,13 @@ import (
 // Closest-space selection and its velocity update are shared with the
 // existing orb path; items invoke it after fluid/gravity acceleration.
 func setEmbeddedEntityEscapeVelocity(w *world.World, e *Entity, heightBox float64) {
+	setEmbeddedEscapeVelocity(e, heightBox, func(pos world.Pos) bool {
+		b := w.GetBlock(pos)
+		return b == world.Air || world.NonSolid(b)
+	})
+}
+
+func setEmbeddedEscapeVelocity(e *Entity, heightBox float64, eligible func(world.Pos) bool) {
 	centerY := e.Y + heightBox/2
 	feet := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(centerY)), Z: int(math.Floor(e.Z))}
 	fx := e.X - float64(feet.X)
@@ -18,7 +25,7 @@ func setEmbeddedEntityEscapeVelocity(w *world.World, e *Entity, heightBox float6
 	axis, sign := 'y', 1.0
 	for _, d := range [5][4]int{{0, 0, -1, 'z'}, {0, 0, 1, 'z'}, {-1, 0, 0, 'x'}, {1, 0, 0, 'x'}, {0, 1, 0, 'y'}} {
 		nb := world.Pos{X: feet.X + d[0], Y: feet.Y + d[1], Z: feet.Z + d[2]}
-		if b := w.GetBlock(nb); b != world.Air && !world.NonSolid(b) {
+		if !eligible(nb) {
 			continue
 		}
 		var dist float64

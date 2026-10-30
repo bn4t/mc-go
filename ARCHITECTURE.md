@@ -106,9 +106,12 @@ Embedded regular items apply fluid/gravity acceleration before closest-space
 escape velocity, then move without collision and apply float air drag/friction.
 The same float arithmetic applies to ordinary items. Five full-block single-exit
 chambers with and without gravity pin direction, bounds and motion/displacement
-relations. Neighbor selection still uses the existing NonSolid approximation;
-random sequence, partial shapes, no-exit/tied cases, embedded effects/fluids,
-initially grounded cases and XP-orb embedded movement remain incomplete.
+relations. Item neighbor selection now checks occupied collision volume in the
+live world, including partial blocks and measured piston/shulker contexts. A
+32366-state empty-context census pins the independent full-cube predicate;
+thirteen tie/near-tie controls retain existing direction priority. Orb eligibility
+keeps its material policy. Random sequence, exhaustive no-exit/embedded-fluid
+combinations, initially grounded cases and XP-orb movement remain incomplete.
 
 Opening shulker lids push supported native dropped items, armor stands and cows.
 Six-axis NoGravity apparatus and wall controls distinguish stand noPhysics

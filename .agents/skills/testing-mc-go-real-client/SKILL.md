@@ -257,3 +257,12 @@ heal. For periodic effects, include both a zero-interval amplifier and a wrapped
 amplifier32 on a short finite duration: treating all high amplifiers as every
 tick would incorrectly pass only the first control. Finite effect evidence does
 not establish the entity-age phase used by infinite instances.
+
+
+## Collision-fixture state witnesses
+
+A requested block name does not prove which shape the physics consumer sees.
+Covered farmland can change to dirt before the measurement. Require exact block
+state witnesses before and after the measured tick, and preserve invalid
+apparatus logs separately from behavioral mismatches. Inspect the complete
+aggregate result and both server legs before calling a native baseline valid.

@@ -88,6 +88,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Cap/category fixtures must observe the whole eligible domain. Capture global
   counts and new entity IDs/positions before changing retry budgets or blaming
   production; a valid spawn outside a counted arena can consume the cap.
+- Physics fixtures must witness the actual block state around the measured tick.
+  A requested farmland state can become dirt under a solid cover. Inspect full
+  aggregate results and both native/Go failure rows before claiming a baseline.
 - For randomized physics, use geometry to select a direction and pin impulse
   bounds plus displacement/velocity relations. Observe the exact first tick;
   unrelated random samples and accumulated impulses are not exact parity pins.
