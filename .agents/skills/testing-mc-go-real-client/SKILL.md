@@ -318,3 +318,10 @@ Instantaneous effect metadata does not imply an extra dose when a status is
 stored. For add/re-give causality, freeze a mob, verify unchanged game time and
 health before ticking, then observe exactly one tick. Keep uncapped multi-tick
 command effects separate from direct scaled drinking/splash/cloud doses.
+
+
+For execute-budget probes, restore deliberately low sequence/fork limits before
+using execute to observe results. Unknown objectives throw, while missing scores
+in existing objectives can be ordinary false; retain both controls. Decode
+nested typed error components and exact say bodies, and retain source ownership
+and partial-fork sentinels when testing callback order.

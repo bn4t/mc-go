@@ -123,6 +123,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   An explicit empty component can differ from absence. For effect/spawn ordering,
   establish positive tracking first; batched block packets do not expose internal
   state-mutation order by themselves.
+- Restore low command-sequence/fork limits before execute-based witnesses.
+  Distinguish unknown-objective errors from missing-score false conditions,
+  and decode nested typed error components rather than matching raw text.
 - Function probes must distinguish empty/missing groups from nonempty functions
   without return: their execute-store callbacks differ. Confirm loader acceptance
   separately from a codec's partial result, including function permission level.

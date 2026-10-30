@@ -292,8 +292,9 @@ Mojang server over the wire.
   measured world-time deadlines, clear/replace/append and server-source controls;
   file/tag events survive native save/restart. Startup load/tick tags and measured
   required/optional references execute. Measured nested/recursive function
-  execution honors command-sequence budgets with captured sources. Macros,
-  returns, global outer-command/fork budgets and full syntax remain open.
+  execution honors command-sequence budgets with captured sources. Supported
+  execute plans share outer action/fork limits, batched predicates and ordered
+  stores. Unsupported grammar, macros, returns and full syntax remain open.
 - [x] World save format parity (region files)
 - [~] RCON, query, properties parity (server.properties: read,
       completed with vanilla's defaults and rewritten byte for byte -
@@ -19046,3 +19047,12 @@ This corrects one existing shared block-effect input. Item wire controls and ind
 - **Pinned** — Nine-file patch SHA256 `8dddd0374956fc0989c12f86a1117024c43db1188ded774d919e4b1dc0199592`, basee70cc3f, plus a comment-only clarification in the older instant-effect test. Native/Go wire PASS115.88s (27.83/33.48), units1.209s, race11.761s, related units52.178s, vet/default compilation0.157s and tool build PASS. Existing instant75.34s, thrown/cloud65.98s and custom-drink35.42s regressions PASS. Supplemental frozen re-give PASS16.20s (1.61/1.21) proves Health1 stays unchanged after acceptance and a declined weaker re-give at fixed game time, then becomes9 after exactly one strong-effect tick; supplemental compilation0.262s PASS. Final exits survived disconnect and were verified without rerunning completed checks. Evidence: `work/effect-instant-final-stage/manifest.md`.
 
 The earlier add-time interpretation is retracted; no particular unseen tick is retroactively inferred. Scope covers command-created status instances and selected direct-dose regressions, not complete potion-origin coverage, direct saturation classification, all amplifier/range cases or exact first-pulse packet ordering.
+
+
+## Slice — parsed execute plans and shared root budgets (2026-10-30)
+
+- **Measured** — Native wire probes establish batched modifier stages, strict context bounds (N contexts require max_command_forks greater than N), partial-fork failures and declaration-order score stores. Unknown objectives throw even under unless; missing scores in existing objectives are ordinary false. Java26.2/JDK25.0.5+8, runtime SHA1 `86765a5899bd9c96461036a628796b4245715058`.
+- **Implemented** — Compile supported execute grammar before effects, evaluate modifier batches under shared root action/fork budgets, and reuse the bounded function queue. Preserve per-context failures and immutable ordered store bindings. Eight-file owned patch SHA256 `b8f5b88f24fb14848a3acaa868bc827e3e6f04faa08171ea265fb5bd37acc0e8`; player executor prerequisites were committed separately.
+- **Pinned** — Final main wire PASS72.75s (native27.94/Go21.47), covering161 observations and20 diagnostics; fork/callback50.25s, partial-fork17.28s, implicit-clear21.31s, function budget/source/default-limit47.78s and tag/load/tick/no-return21.99s PASS. Targeted units0.187s, full internal/server393.965s, build/vet PASS. Recovered logs confirm final exits before transport loss; the earlier socket-restricted suite is retained as a setup failure. Evidence and exact sources: `work/execute-plan-manifest.md`, `work/execute-plan-stage/`.
+
+Compiled leaves are basic function/tag calls without macro arguments, scoreboard player set/add/remove/get and clear. Modifiers cover as/at/in, numeric positioned/rotated, align/anchored, entity/score conditions and single-holder score stores. Other grammar falls back before effects; this is not full Brigadier or command-framework parity. Existing rotated/anchored spatial limitations, macros, returns and dynamic reload remain separate.

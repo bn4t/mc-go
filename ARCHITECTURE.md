@@ -1208,8 +1208,14 @@ Player-only @s arguments use the bound executor, including neutral server-source
 frames; nil or nonplayer executors cannot fall back to the original caller.
 Argumentless clear uses that same bound player and reports the native
 requires-player failure for nonplayer sources.
-The context starts at function entry; shared budgets across outer command forks,
-max_command_forks, return/macros and complete parser continuations remain open.
+Supported execute forms compile before effects and share a root action budget
+with the function queue. Modifier stages evaluate across source batches before
+leaves mutate state; strict max_command_forks bounds and ordered score-store
+callbacks preserve measured partial-fork behavior. Compiled leaves cover basic
+function/tag calls, scoreboard player set/add/remove/get and clear. Unsupported
+grammar falls back before effects to the existing dispatcher. Return/macros,
+complete parser continuations and rotated/anchored spatial propagation remain
+open; the plan does not establish full command-framework parity.
 
 
 Native full-chunk loading now decodes detached scheduled-tick records separately

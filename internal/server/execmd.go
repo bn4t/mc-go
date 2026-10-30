@@ -48,6 +48,12 @@ type executeContext struct {
 
 // runExecute parses an /execute chain and runs its trailing command.
 func (s *Server) runExecute(player string, args []string) reply {
+	if plan, err, handled := s.compileExecutePlan(player, args, 1); handled {
+		if err != nil {
+			return *err
+		}
+		return s.runExecutePlan(player, plan)
+	}
 	ctx := executeContext{dim: s.dimOf(player), alive: true}
 	ctx.pos = s.execOrigin(player)
 	if frame := s.commandFrame(player); frame != nil {

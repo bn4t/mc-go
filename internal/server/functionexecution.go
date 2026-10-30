@@ -76,6 +76,10 @@ func (s *Server) executeFunctionNames(actor string, names []string, command bool
 	s.functionExecution = q
 	defer func() { s.functionExecution = nil }()
 	q.push(actions)
+	s.drainFunctionExecution(q)
+}
+
+func (s *Server) drainFunctionExecution(q *functionExecution) {
 	for len(q.stack) > q.head {
 		last := len(q.stack) - 1
 		action := q.stack[last]
