@@ -19740,3 +19740,8 @@ Immutable `b72cfa2` (the two placement slices) passes build, vet, tagged blackbo
 - **Pinned** — `TestPlaceIglooParity` PASS 11.10s (native 2.17s, Go 1.66s) checks both legs' success/failure replies, the chest/brewing-stand/sign/furnace cells, the chest loot table and the fixed material counts. `TestCommandIglooPlacement` PASS in the worldgen package; the four placement pins re-pass (igloo 11.45s, jungle 11.93s, pyramid 12.60s, swamp hut 14.93s). Build/vet/tagged compilation pass. Three-file behavior artifact `5caa62f1509e0a8e5195e28e90cafd1a0a1b0a651e15099579b699542f174926`. Remaining limit: the laboratory presence/section count is large-feature-seeded and the template placement random is level-owned; other template structures remain unsupported.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement inform independently written code.
+
+
+## Verification — igloo placement slice (2026-10-30)
+
+Immutable `cd53576` passes build, vet, tagged blackbox compilation and the complete default `go test -p 2 ./... -count=1 -timeout 25m` suite: internal/server 235.342s, world 0.311s, worldgen 10.871s, public server 6.633s and default blackbox 111.152s; every other package passes. Targeted native controls on the same tree: `TestPlaceIglooParity` 11.10s and the four placement pins (igloo 11.45s, jungle 11.93s, pyramid 12.60s, swamp hut 14.93s), all PASS; focused worldgen 13.451s. These are targeted vanilla comparisons, not a complete native-oracle suite, graphical-client playtest or production-load claim.
