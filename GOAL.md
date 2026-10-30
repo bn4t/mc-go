@@ -19520,3 +19520,12 @@ This uses the existing legacy execute fallback and retains its fork/failure/budg
 - **Measured** — Independent native controls establish the scoped palette/structured-item/required-shape fields, strict food threshold, scheduled-container pause and execute-facing source behavior recorded in their individual slices.
 - **Implemented** — Integrated those six slices with the documented IO completion/materialization safeguards and updated the matrix, architecture, agent conventions and test guidance. Later cat/hut, firework codec/writer and powder candidates are excluded.
 - **Pinned** — Immutable5ab5edd passed build, vet, generated eye-table consistency, tagged compilation and the complete default suite; session78826 exit0. Internal server427.581s, world1.588s, worldgen47.594s, public server34.485s and default blackbox231.668s PASS. Log: work/verified-5ab5edd.log; source: /workspace/mcgo-verified-5ab5edd. This does not claim the complete live-oracle suite, GUI playtesting or production-load verification.
+
+
+## Slice — creeper swell-direction metadata accessor (2026-10-30)
+
+- **Measured** — A real 26.2 client (Prism, offline) disconnected with "Network Protocol Error" whenever a creeper's swell direction synced: `Invalid entity data item type for field 18 on entity Creeper: old=false(Boolean), new=-1(Integer)`. The generated 26.2 metadata schema (`java_metadata_schema_gen.go`, from `tools/genentitymetadata`) places DATA_SWELL_DIR at accessor 16 (int), DATA_IS_POWERED at 17 and DATA_IS_IGNITED at 18 (both boolean). Wire observation plus the existing generated report table; no new bytecode inspection.
+- **Implemented** — The spawn pack and dirty-diff writers emit swell direction at accessor 16 instead of 18.
+- **Pinned** — `TestJavaEntityCreeperMetadataMatchesSchema` runs spawn and dirty creeper metadata through the 26.2 schema projector and requires accessor 16. It fails on the old writer (`invalid minecraft:creeper metadata accessor 18 serializer 1`) and passes on the fix. The internal unit suite passes except `TestJSetMatchesJava`, which needs a Java runtime that this workstation lacks. No differential blackbox run: this workstation has no vanilla jar or JDK.
+
+DATA_IS_IGNITED (18) is still never sent, so flint-and-steel ignition is not visible to clients. The dirty diff starts from swell direction 0, not vanilla's -1 default, so mc-go sends one extra -1 update that vanilla omits.

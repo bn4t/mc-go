@@ -260,7 +260,8 @@ records prerequisites, the observed blocker and verification procedures.
   extension contracts and runtime constructor, usable by external modules.
   Frontends can admit transient presence/movement avatars and submit privileged
   player actions; Java accepts measured 26.1/775 and 26.2/776 wire profiles.
-- `plugins/` — example plugins (`hello`, `anticheat`).
+- `plugins/` — example plugins (`hello`, `anticheat`); the `cmd/mc-go`
+  binary links only `hello`.
 - `conformance/`, `cmd/mc-conformance/` — portable TCP smoke profile,
   endpoint manifests, JSON results and bounded wire transcripts for measured
   Java 775 and 776 profiles. Smoke coverage is separate from gameplay coverage.

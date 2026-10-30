@@ -632,3 +632,26 @@ func TestJavaEntityMalformedMetadataValuesReject(t *testing.T) {
 		t.Fatal("unbounded metadata particle list accepted")
 	}
 }
+
+// Creeper DATA_SWELL_DIR is accessor 16 (int); 18 is the DATA_IS_IGNITED
+// boolean, and a real client disconnects on an int there.
+func TestJavaEntityCreeperMetadataMatchesSchema(t *testing.T) {
+	p := entityProfile(t, 775)
+	creeper := mustEntityType("creeper")
+	check := func(label string, items []byte) {
+		t.Helper()
+		var body protocol.Buffer
+		body.VarInt(321)
+		body.Raw(items)
+		if _, err := p.projectMetadata776(creeper, body.Bytes()); err != nil {
+			t.Fatalf("%s: %v (%x)", label, err, items)
+		}
+		if !bytes.Contains(items, []byte{16, 1}) {
+			t.Fatalf("%s: swell_dir not at accessor 16: %x", label, items)
+		}
+	}
+	e := &Entity{Type: creeper, Living: true, AirSupply: 300, Health: 20, SwellDir: 1, Powered: true}
+	check("spawn", encodeLivingMetadata(e, nil))
+	e.SwellDir = -1
+	check("dirty", encodeLivingMetadataDirty(e, nil))
+}
