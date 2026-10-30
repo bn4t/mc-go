@@ -223,7 +223,10 @@ func TestExecuteIfParity(t *testing.T) {
 		time.Sleep(1400 * time.Millisecond)
 		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
 		time.Sleep(800 * time.Millisecond)
-		sink.take()
+		// Setup may still be queued behind initial world work. Consume its
+		// actual completion before attributing replies to the first probe.
+		sendCommand(t, pw, "say EXECUTE_IF_SETUP_END")
+		waitForExactSayBB(t, sink, "EXECUTE_IF_SETUP_END", 10*time.Second)
 		var out [][]string
 		for _, cmd := range cmds {
 			ageStore := cmd == "execute store result entity "+sel+" Age int 1 run data get storage z:z a"

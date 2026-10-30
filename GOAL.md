@@ -19096,3 +19096,10 @@ Splash/cloud direct dispatch and arrow stored-status origins remain separate. Th
 - **Measured** — The old fixed500ms capture windows returned three empty Go captures, then attributed their correctly ordered replies to the fourth command during initial world work. The original failure remains in `work/scheduled-policy-regression-TestWorldCmdParity.log`.
 - **Implemented** — Use exact decoded readiness and per-command say receipts, omitting only the fixture's own marker packets. All67 commands and normalized response comparisons remain unchanged. Test-only patch SHA256 `e6fc740b18b6306244b4b12ae37582db9ac5a3521864394753db2fee0c1633a2`.
 - **Pinned** — Native26.2/Go comparison PASS42.69s, actual final exit0; source hashes and scope in `work/worldcmd-barrier-slice.md`. This repairs reply attribution and makes no production-behavior change.
+
+
+## Slice — isolate execute-condition setup replies (2026-10-30)
+
+- **Measured** — The old fixture leaked two delayed setup cleanup errors into its first item-replace capture; every later comparison passed. Retain the original181.90s failure log.
+- **Implemented** — Await an exact setup-completion say receipt before starting probe captures. Existing sleeps,450ms per-probe windows, content comparisons and exact10-tick stored Age assertions remain unchanged. Test-only patch SHA256 `b963441054e3751e271fbfbb9b5429fcf706b8b7d270c83edee9440fba50a3a8`.
+- **Pinned** — Full native26.2/Go execute-condition comparison PASS194.90s, actual final exit0. Evidence: `work/execute-if-setup-barrier-slice.md`. Other legacy timed capture windows remain outside this narrow repair.
