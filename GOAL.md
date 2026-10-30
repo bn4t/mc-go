@@ -94,8 +94,11 @@ Mojang server over the wire.
       outposts, trail ruins, ancient cities, trial chambers, bastions)
       match piece for piece and block for block - `TestStructure*Parity` -
       and a generated world saves their starts and references as vanilla
-      does - `TestStructureServerSaveParity`; the legacy (non-jigsaw)
-      structures remain
+      does - `TestStructureServerSaveParity`. Documented legacy-structure pins
+      also cover ocean/nether/end structures and overworld land structures,
+      including fortresses, monuments, strongholds and mansions (see the two
+      legacy-structure slices dated2026-10-29). Structure-generated entities
+      and structure-specific spawn overrides remain incomplete.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -19325,3 +19328,10 @@ Orb physics and world age are unchanged. Scaled/posed/vehicle reach, random-choi
 - **Pinned** — Direct-NBT differential PASS19.71s(native6.24/Go1.97) without item/data setup workarounds. Build/vet and focused loader/query units0.455s PASS, including damage, repair cost, namespaced numeric-looking custom name and signed long extrema. Query regression17.87s and full setblock destruction-mode regression200.39s PASS. Exact source/dependency evidence: work/setblock-container-loader-stage/ and work/setblock-container-loader-slice.md.
 
 Unsupported component models and separate itemFromNBT persistence/data restoration remain explicit follow-ons. This slice does not change block-query payload expectations or claim complete item component preservation.
+
+
+## Slice — reconcile terrain coverage notes (2026-10-30)
+
+- **Measured** — Documentation audit found that the terrain matrix still said legacy structures remained unimplemented, despite the committed2026-10-29 ocean/nether/end and overworld-land slices and their differential tests.
+- **Implemented** — Update the matrix to reference that existing scoped coverage and retain the documented structure-generated-entity and spawn-override gaps. The terrain row remains partial.
+- **Pinned** — Cross-checked the existing structure implementation files, named TestStructure tests and recorded slice evidence. This is a documentation reconciliation; no new native world-generation run or broader parity claim is made.
