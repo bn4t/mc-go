@@ -42,7 +42,9 @@ Mojang server over the wire.
       and test-instance controller/built-in RUN workflows and client frame-end
       movement have measured coverage. Startup custom GameTest registries and
       signal-driven block tests and difficulty/weather environments have scoped pins.
-      Complete schemas, other environments and handler semantics remain partial; routing is not full parity.
+      Operator entity-tag queries now pin permission, dimension scope, transaction
+      echoes and modeled canonical save views. Complete schemas, other environments
+      and handler semantics remain partial; routing is not full parity.
 - [x] Encryption / online mode
 - [x] Cookie / transfer / dialog / code-of-conduct packets.
       /transfer writes play transfer (host + port); /dialog show/clear
@@ -156,7 +158,9 @@ Mojang server over the wire.
       shulker/piston collision, Marker and NoGravity armor-stand policies, shulker/piston item
       pushes, six-axis stand/cow shulker opening sweeps and retracting source-base
       stand/cow ejection have measured pins. Dying bodies obstruct placement until
-      actual removal; general physical pushing remains incomplete.
+      actual removal. XP-orb escape overlap/direction, first-tick damping and standing
+      scaled-player attraction have scoped native pins; general physical pushing
+      and broader orb trajectories remain incomplete.
 - [~] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
       damage, death and drop parity remains incomplete. Live XP-orb counters
@@ -165,7 +169,9 @@ Mojang server over the wire.
       effective attributes, Jump Boost, landing block factors and fractional
       support tops, with seven vanilla comparisons. Ordinary player/mob knockback
       consumes canonical resistance; sword sweep raw-motion precision is pinned.
-      Specialized weapon pushes remain partial.
+      Spear contacts detach measured ordinary NPC boat riders, with independent
+      invulnerability/cooldown controls and client transition receipts. Other
+      mount geometry and specialized weapon consumers remain partial.
 - [~] Projectiles, vehicles, mobs, villagers; player-thrown splash/lingering
       potions, registered variants, measured cloud doses and Ender Eye
       flight/use metadata now wire-pinned;
@@ -19259,3 +19265,9 @@ Native coverage is standing scales0.5,1,2 at one initial offset with NoGravity o
 - **Pinned** — Exact decoder test PASS; both protocol775/776 compact completion/restart checks PASS2.76s and native-format checks PASS2.00s on unchanged production. Default test compilation PASS. Frozen source and rejected setup logs: work/save-readiness-fixture-manifest.txt and work/save-readiness-fixture-slice.md.
 
 The rejected forceload-based setup exposed an independent command-source dimension gap. The final fixture avoids that dependency without increasing its readiness budget or changing production. Forced-ticket persistence and complete chunk lifecycle remain separate.
+
+## Slice — query, orb and boat integration verification (2026-10-30)
+
+- **Measured** — The first immutable full default run on0d91d28 passed every package except two persistence fixtures that queried unloaded destinations. Their original failures are retained; the separate readiness correction preserves all saved-state outcomes and changes no production files.
+- **Implemented** — Integrated canonical entity queries, block-condition readiness, precise orb overlap, scaled attraction and ordinary NPC boat dismounts, plus the scoped fixture correction. Matrix notes remain partial; this batch does not establish complete gameplay parity.
+- **Pinned** — Final immutable814e667 build/vet, generated eye-table check and tagged compilation PASS; the full default blackbox package passes177.155s. All other package sources/tests are identical to0d91d28, whose full run passed internal/server377.083s, world0.662s, worldgen23.334s, public server13.332s and every remaining package. Exact logs: work/verified-0d91d28.log and work/verified-814e667.log. Focused native comparisons are recorded in each slice; this is not a full live-oracle suite or real GUI playtest.
