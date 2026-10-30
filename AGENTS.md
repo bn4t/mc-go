@@ -57,6 +57,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   pushing. With concurrent agents, test committed HEAD plus only the slice's
   owned patch; unrelated in-progress files can invalidate a test result.
   Stage exact owned patches and new files, preserving other agents' work.
+  Verify overlay file hashes in the export and require actual named tests to run.
+  git apply in an untracked nested export can discover the outer repository and
+  skip paths; an exit-zero no-tests result is not a successful behavioral check.
 - Socket deadlines are absolute across login/configuration/join unless reset.
   Set the readiness budget before those reads; a streaming deadline set after
   Join cannot prevent expiry inside Join readiness. Preserve stream assertions.

@@ -276,3 +276,13 @@ actual tick and a no-advance control, and distinguish frozen player ticks from
 paused mobs. Ordinary respawn creates a new body clock; live dimension transfer
 preserves it. Bound wire observation windows with player counters rather than
 claiming an exact effect-action timestamp from a command reply.
+
+
+## Verification export integrity
+
+When verifying an owned overlay on an immutable archive, compare its file hashes
+to the frozen manifest before building. git apply inside an untracked nested
+export can discover the outer repository and skip paths. A successful process
+exit with no tests run is not behavioral evidence: list or run the intended
+named tests and retain their results. Explicit empty-run compilation gates are
+separate and must be labeled as compilation only.
