@@ -18977,3 +18977,10 @@ Scope is supported recurring callback cardinality. Loaded duration0 is a negativ
 - **Pinned** — Four-file patch SHA256 `9ba6021ca356d64db85cf9a1fada6a5582fcb3916ce606df0d392489d7eaeb08`, baseb2bf918, plus comment-only companion `3a877c542b8bc988cf49fb18f45cf776b4a6a58436875e6b691bdd6f20e80394`. Strict25 native/Go wire PASS27.98s (9.15/7.28), accepted movement/ClientTickEnd40.80s (12.39/12.27), real public frontend/avatar test1.14s (package1.272s), build/vet/focused units2.061s/tagged compilation PASS. Invalid controls require exact typed reason and actual closure. Evidence and source/log hashes: `work/player-numeric-stage/manifest.json`.
 
 Positive infinity controls prove connection retention, not complete clamp/position parity. Finite rotation wrapping, additional valid movement authority semantics and truncated-packet behavior remain separate measured scopes. No neutral-avatar disconnect policy was added.
+
+
+## Slice — verify player numeric validation integration (2026-10-30)
+
+- **Measured** — Verify immutable commit6eaa28d with all concurrent work excluded.
+- **Implemented** — No additional production changes; record integration before publication.
+- **Pinned** — Build/vet PASS, tagged blackbox compilation0.081s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server299.672s, world0.489s, worldgen30.349s, publicserver13.197s and default blackbox150.584s. All remaining packages pass. Evidence: `work/verified-6eaa28d.log`; the preceding slice records native movement and public-avatar controls. Full native-oracle, graphical-client and realistic-load verification remain separate.
