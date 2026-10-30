@@ -227,6 +227,7 @@ func (s *Server) loadWorldDir() error {
 	// The chunks brought their block entities with them; without this a
 	// loaded chest would stand there open and empty.
 	s.restoreBlockEntities()
+	s.restoreScheduledChunkTicks()
 	for _, d := range s.dims {
 		s.restoreEntities(d)
 	}

@@ -34,6 +34,9 @@ type schedKey struct {
 	block string
 	// Registered fluid owner distinguishes source and flowing registrations.
 	fluid string
+	// Native loads can contain repeated position/type records. Distinct IDs keep
+	// records separate from the owner's scheduling membership.
+	recordID uint64
 }
 
 // tickScheduler is the pending block-tick queue.
@@ -47,10 +50,13 @@ type tickScheduler struct {
 	queued map[schedKey]int64
 	prio   map[schedKey]int8
 	// Bound once by Server.New before the scheduler is exposed.
-	blockType   func(schedKey) string
-	fluidType   func(schedKey) string
-	active      map[schedKey]blockTickRecord
-	activeOrder []schedKey
+	blockType      func(schedKey) string
+	fluidType      func(schedKey) string
+	active         map[schedKey]blockTickRecord
+	activeOrder    []schedKey
+	owners         map[schedKey]bool
+	nextRecordID   uint64
+	ownerDeadlines map[schedKey]ownerTickDeadlines
 }
 
 // Vanilla TickPriority values — the schedulePrio callers' range; lower
@@ -64,9 +70,11 @@ const (
 
 func newTickScheduler() *tickScheduler {
 	return &tickScheduler{
-		due:    map[int64][]schedKey{},
-		queued: map[schedKey]int64{},
-		prio:   map[schedKey]int8{},
+		due:            map[int64][]schedKey{},
+		queued:         map[schedKey]int64{},
+		prio:           map[schedKey]int8{},
+		owners:         map[schedKey]bool{},
+		ownerDeadlines: map[schedKey]ownerTickDeadlines{},
 	}
 }
 
@@ -88,15 +96,22 @@ func (t *tickScheduler) schedule(k schedKey, at int64) {
 // schedulePrio follows LevelChunkTicks.schedule's first-request rule: a
 // duplicate pending position/type does not replace timing or priority.
 func (t *tickScheduler) schedulePrio(k schedKey, at int64, prio int8) {
+	k.recordID = 0
 	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if _, ok := t.queued[k]; ok {
+	if t.owners[k] {
 		return
+	}
+	t.owners[k] = true
+	if _, exists := t.queued[k]; exists {
+		t.nextRecordID++
+		k.recordID = t.nextRecordID
 	}
 	t.queued[k] = at
 	t.prio[k] = prio
 	t.due[at] = append(t.due[at], k)
+	t.indexTick(k, at)
 }
 
 // poll removes and returns everything due on tick `now`, ordered by
@@ -129,6 +144,10 @@ func (t *tickScheduler) poll(now int64) []schedKey {
 	}
 	for _, k := range keys {
 		delete(t.queued, k)
+		t.unindexTick(k)
+		owner := k
+		owner.recordID = 0
+		delete(t.owners, owner)
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		if a, b := t.prio[keys[i]], t.prio[keys[j]]; a != b {
@@ -164,29 +183,33 @@ func (t *tickScheduler) pending() int {
 
 // isQueued reports whether a position already has a tick pending.
 func (t *tickScheduler) isQueued(k schedKey) bool {
+	k.recordID = 0
 	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	_, ok := t.queued[k]
-	return ok
+	return t.owners[k]
 }
 
 // queuedAt returns the due tick of a pending entry — the
 // willTickThisTick half of LevelTickAccess.
 func (t *tickScheduler) queuedAt(k schedKey) (int64, bool) {
+	k.recordID = 0
 	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	at, ok := t.queued[k]
-	return at, ok
+	if !t.owners[k] {
+		return 0, false
+	}
+	index, ok := t.ownerDeadlines[k]
+	return index.minimum, ok
 }
 
 // hasScheduled is LevelTickAccess.hasScheduledTick — true while the
 // same position and current registered block type are still queued.
 func (t *tickScheduler) hasScheduled(k schedKey) bool {
+	k.recordID = 0
 	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	_, ok := t.queued[k]
-	return ok
+	return t.owners[k]
 }

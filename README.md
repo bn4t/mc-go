@@ -158,8 +158,10 @@ preserve their first deadline and priority. Clone copies scheduled block
 work across the full source box, including collected callbacks and empty filtered
 selections. GameTest resets cancel queued and collected block callbacks. Native
 chunk saves now write pending block/fluid callbacks with their registered owner,
-relative deadline and priority; native-server readback is verified. Go loading
-of those queues, chunk activation and native sub-tick ordering remain open.
+relative deadline and priority. Go restores valid full-chunk queues, retaining
+duplicate records, rejecting stale owners and preserving measured expiry and
+clone behavior across real restarts. Dynamic chunk activation and native sub-tick
+ordering remain open.
 
 Native structure-template lookups cache both present and missing results until
 corner unload or `/reload`; unreadable generated NBT can fall back to bundled

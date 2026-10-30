@@ -1143,7 +1143,12 @@ includes tick-only generated columns. Native chunk lists retain registered
 owner, signed relative int32 delay and priority; already-collected callbacks
 are excluded. Output sorts by delay, priority and position because the current
 queue does not retain native sub-tick insertion order. Native-server readback
-is pinned; Go queue loading and chunk activation remain separate work.
+is pinned. Full-chunk queue restoration retains distinct record IDs separately
+from owner membership, so polling a loaded duplicate clears membership while
+other records may remain. Per-owner minimum indexes keep deadline queries
+constant-time; removals inspect only that owner. Restored deadlines are relative
+to game age, and existing registered-owner dispatch guards remain in force.
+Dynamic chunk activation and native sub-tick order remain separate work.
 
 Player retirement captures a detached attribute/effect snapshot before the
 physical entity is removed. Subsequent disconnect/kick persistence uses this
@@ -1196,5 +1201,6 @@ from terrain. Valid list siblings survive malformed entries; registered IDs
 normalize default namespaces, numeric tags follow Java int conversion and
 priority clamps to the native range. X/Z chunk ownership is checked without
 inventing a Y-bound codec rule. Duplicate records and list order remain intact.
-This handoff alone does not activate the server scheduler; protochunk promotion
-and chunk activation policy remain separate.
+The server consumes this handoff after regions and block entities load, before
+normal ticking. Protochunk promotion and dynamic chunk activation policy remain
+separate from the current eager full-chunk loader.

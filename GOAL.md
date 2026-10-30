@@ -272,8 +272,9 @@ Mojang server over the wire.
   and complete command schemas remain partial. Pending block callbacks retain
   registered block/fluid type and the first deadline/priority, including distinct
   source/flowing fluid owners. Native chunk saves include pending ticks with
-  measured owners, relative deadlines and priorities. Go queue loading, chunk
-  activation and sub-tick ordering remain partial.
+  measured owners, relative deadlines and priorities. Go full-chunk queue
+  loading preserves duplicates and measured expiry/clone behavior. Dynamic chunk
+  activation and native sub-tick ordering remain partial.
   Attribute getters and mutations supply measured typed execute-store results.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
@@ -18710,3 +18711,13 @@ This closes the measured late-viewer gap. Persistence, independent multi-holder 
 - **Pinned** — Four-file SHA256 `5b78ff48f75bc559f2151074a3fc48b41068076c1c55cf21a71945a4095a3d43`, base d5f80a6. Complete immutable world tests PASS 1.494s, covering malformed siblings, all numeric tag forms, aliases, fluid registry, duplicates and handoff replacement/detachment. Probe source SHA256 `b5a1483f53a1f7503e8f9c1d9dfa670b36dee512904d6bac86d3b39b1af3d075`; final native log SHA256 `53d59e11eefa0d400db632f59245b9480262e4c2c771195764b9706a2cd97ebf`. Full tool/input/probe provenance: `work/scheduled-loader-native-facts.md`; manifest `work/scheduled-loader-codec-manifest.txt`.
 
 Runtime restoration, protochunk promotion, activation/unload timing, native sub-tick ordering and older-version data fixing remain separate work.
+
+
+## Slice — restore native scheduled callbacks after restart (2026-10-30)
+
+- **Measured** — Native codec/container probes and actual restarted full chunks establish distinct duplicate records, ordinary first-request deduplication and separate owner membership: polling any loaded duplicate clears membership even when another remains. New requests can then repopulate membership. Native source/tool hashes are in `work/scheduled-loader-native-facts.md`; Java 26.2/JDK 25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Restore detached full-chunk block/fluid records after region/block-entity loading, with relative game-age deadlines and existing registered-owner dispatch. Separate pending record IDs from owner membership. Keep an efficient per-owner minimum index instead of scanning unrelated queues during comparator/repeater queries. Snapshots retain all pending duplicates; block clears remove records/membership/index while leaving fluids; clone uses ordinary destination deduplication.
+- **Pinned** — Seven-file SHA256 `df2ba54658472640a18967abecd142736f22bbaaefdb04ef4cf0d942c5423853`, based on d5f80a6 with codec dependency now committed. Exact-multiset native/Go restart wire PASS 30.69s (native 20.30s, Go 8.97s): exactly five canonical records, malformed sibling recovery, numeric/priority coercion, foreign-chunk exclusion, Y=1000, duplicate deadlines, powered-before/released-at-deadline controls, stale owner rejection and resumed fluid. Cloned loaded duplicates yield one destination record with the same deadline/priority and exact source/destination expiry. Final tagged binary SHA256 `0bc7d8d10ec11704699bd32361e217310aa8f37f3a449f31343137d88de30f20`.
+- **Pinned** — Focused world/server PASS 0.009s/0.215s, full build/vet/tagged compilation PASS. Existing native save/block-identity/fluid-identity/queued-clone/active-clone regressions PASS 46.27/12.84/20.32/16.92/11.71s on identical production source. The final fixture only strengthens exact record consumption; those regressions were not repeated. Units cover repeated membership clearing/new requests, 1000 unrelated owners, snapshot duplicates after membership removal and block-only clear. Final evidence: `work/scheduled-loader-runtime-slice.md`, `work/scheduled-loader-indexed-witness.log` and the runtime manifest. Earlier weaker pins and canceled queued-only invocations remain accurately recorded.
+
+Only minecraft:full chunks are handed off. Protochunk promotion/data fixing, dynamic activation/unload timing, native cross-chunk sub-tick ordering and unimplemented block callback families remain open. Selectable clock rate/pause has no new combined deadline pin; queue deadlines continue using independent game age.

@@ -98,6 +98,10 @@ func (t *tickScheduler) clearBlockArea(dim string, low, high world.Pos) {
 		if blockTickInside(k, dim, low, high) {
 			delete(t.queued, k)
 			delete(t.prio, k)
+			owner := k
+			owner.recordID = 0
+			delete(t.owners, owner)
+			delete(t.ownerDeadlines, owner)
 		}
 	}
 	for at, list := range t.due {
