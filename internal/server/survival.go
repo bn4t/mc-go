@@ -1348,7 +1348,7 @@ func (s *Server) hungerTickStep() {
 			sess.exhaustion -= 4
 			if sess.saturation > 0 {
 				sess.saturation--
-			} else if sess.food > 0 {
+			} else if sess.food > 0 && s.difficulty != DifficultyPeaceful {
 				sess.food--
 			}
 			changed = true

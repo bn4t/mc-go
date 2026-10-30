@@ -18868,3 +18868,12 @@ Wire scope is selected player periodic/food hooks and villager freeze/thaw, usin
 - **Measured** — Verify immutable commit7008e87 with all concurrent work excluded. Separately, an orb candidate exposed an export setup error: git apply inside an untracked nested checkout discovered the outer repository prefix and skipped its paths. Its no-tests outputs were rejected, and its corrected source files were hash-checked before named tests ran; that candidate is not part of this batch.
 - **Implemented** — No new production changes. Record integration results and require verified overlay source hashes plus actual named-test execution in repository agent guidance.
 - **Pinned** — Build/vet PASS, tagged compilation0.080s PASS, full default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server308.786s, world0.619s, worldgen17.297s, publicserver14.074s and default blackbox137.909s; all remaining packages pass. Log: `work/verified-7008e87.log`. Focused native evidence remains in the preceding slices; no full native-oracle or graphical-client claim.
+
+
+## Slice — preserve food during Peaceful exhaustion (2026-10-30)
+
+- **Measured** — Native FoodData.tick excludes Peaceful difficulty from food spending after saturation empties. A finite Hunger255/duration20 packet followed by25 actual player ticks leaves native food20/saturation0, then Normal difficulty reaches food14; old Go reaches19 then13. Baseline FAIL18.43s (native3.74s PASS/Go4.11s FAIL). Public-method bytecode facts and wire, Java26.2/JDK25.0.5+8, runtime SHA1 `86765a5899bd9c96461036a628796b4245715058`.
+- **Implemented** — Add the Peaceful exclusion only to food spending. Exhaustion and saturation still decrease, and Normal food consumption is unchanged.
+- **Pinned** — Three-file SHA256 `e6e37a2ff8d5f6b03e1a8dbfae937fb31fb50ad84f8318d39d3fcb043df5d217`, base7008e87. Native/Go wire PASS23.31s (4.07/3.63), new/existing hunger-regeneration units41.870s, tagged build, focused vet and default compilation0.164s PASS. Unit controls preserve food17 while saturation falls5→4 and then verify Normal food17→16. Exact effect receipts, expiry and typed food pools establish the wire controls. Source/provenance: `work/food-peaceful-final-stage/`.
+
+Exhaustion thresholds/quanta, imported pool ranges and automatic Peaceful restoration retain their existing separate coverage.

@@ -91,7 +91,8 @@ an explicit bit representation. Ordinary death keeps raw bases but drops old
 modifiers/effects and their dependent absorption state; respawn resets walking
 ability and initializes health from the copied maximum-health base. Retained
 equipment reapplies. Player instant healing, regeneration and food healing use
-effective maximum health; lowering that maximum clamps excess health on the
+effective maximum health. Exhaustion can spend saturation in Peaceful difficulty
+while preserving food level. Lowering maximum health clamps excess health on the
 living frame, while raising it grants no free healing. Complete ability and
 effect mechanics remain partial. Finite regeneration, poison and wither on
 players and mobs use native zero-interval and amplifier-wrap scheduling.
