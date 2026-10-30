@@ -293,6 +293,7 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		s.disconnectWithComponent(sess, translatable("multiplayer.disconnect.invalid_player_movement"))
 		return
 	}
+	yaw, pitch = javaPlayerRotation(yaw, pitch)
 	s.applyPlayerMoveOwned(sess, frontend.Movement{
 		X: x, Y: y, Z: z, Yaw: yaw, Pitch: pitch, OnGround: flags&0x01 != 0,
 	})

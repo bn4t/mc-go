@@ -1262,3 +1262,9 @@ stored velocity, including NoAI bodies. Parked bodies retain their last sample.
 Teleport/data reload invalidate the next baseline while retaining the cached
 vector until sampling. This primitive is not yet consumed by spear damage; the
 dragon loop and broader controller/entity speed policies remain separate.
+
+
+Java player rotation proposals wrap to the signed half-turn range and clamp
+wrapped pitch to[-90,90] before movement hooks. Authoritative plugin replacements
+keep the shared rule's existing semantics. Server-pose controls are independent
+from observer rotation encoding and tracker delivery.

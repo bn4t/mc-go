@@ -19009,3 +19009,12 @@ This fixes implicit clear only and uses the existing dispatcher. General implici
 - **Pinned** — Six-file patch SHA256 `529641ff6431dbaf7f2b37870478dc550acfc3f4b01a7a1716618d2a042df5de`, basee70cc3f. Frozen focused units PASS0.484s cover NoAI, parked/frozen passes, resumed/stationary ticks, teleport then ordinary movement before first/later samples, load then movement, and retained cache before sampling. Existing native spear controls corroborate stationary targets with retained velocity. Evidence: `work/known-speed-manifest-v2.md`, `work/native-known-speed-teleport-followup.log`.
 
 The scratch native subclass bypasses construction and injects explicitly listed minimal state; those method observations do not establish full constructor/world/spawn behavior. Ordinary ticking mobs are covered; the dragon loop, other entity/controller paths and spear consumer adoption remain separate.
+
+
+## Slice — normalize Java player rotation proposals (2026-10-30)
+
+- **Measured** — Native15-case rotation/position-rotation packets establish signed wrapping followed by pitch clamping:450/100→90/90,180/180→-180/-90,-540/-270→-180/90, plus fractions, full turns, zero, maximum finite float and2^24. A packet-owner entity-query receipt precedes authoritative numeric Rotation readback. Native-only PASS15.31s (5.22s). Wire, Java26.2/JDK25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Normalize Java movement proposals before the shared hook. Preserve plugin replacement values and the shared frontend consumer; raw invalid-number rejection remains separate.
+- **Pinned** — Four-file patch SHA256 `d6931b6c71285060f87e96461027c87afd22f015f0081794acc445ceebb7ec65`, basee70cc3f. Immutable15-case native/Go wire PASS42.15s (6.64/6.57), build and combined rotation/numeric units8.624s PASS. A test-only follow-up removes an incorrect, unused observer diagnostic decoder; driver capture, admission, marker ordering and all15 assertions are unchanged, and tagged compilation0.245s PASS. Evidence: `work/player-rotation-stage/manifest.json`, `work/player-rotation-slice.md`.
+
+This pins authoritative server pose, not observer byte delivery or tracking. The removed decoder omitted variable-length spawn velocity and supplied no assertions. Physical position clamping and neutral-avatar angle policy remain separate.
