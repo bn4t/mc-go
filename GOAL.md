@@ -42,7 +42,7 @@ Mojang server over the wire.
       and test-instance controller/built-in RUN workflows and client frame-end
       movement have measured coverage. Startup custom GameTest registries and
       signal-driven block tests and difficulty/weather environments have scoped pins.
-      Operator entity-tag queries now pin permission, dimension scope, transaction
+      Operator entity and block tag queries now pin permission, dimension scope, transaction
       echoes and modeled canonical save views. Complete schemas, other environments
       and handler semantics remain partial; routing is not full parity.
 - [x] Encryption / online mode
@@ -19341,3 +19341,10 @@ Unsupported component models and separate itemFromNBT persistence/data restorati
 - **Measured** — Immutable integration d60dfa8 failed only TestXPOrbPickup: the old unit invoked itemTickStep and expected collection, while the independently verified runtime now dispatches pickup on admitted player frames. All other package checks passed.
 - **Implemented** — Test-only correction checks actual admission/spawn state and invokes playerTickOwned. Preserve the original zero remaining entities, XP5 and level0 assertions; add complete server teardown. One-file patch SHA256 0abdc0d60182526fb2eec3f6eaeb8420459b75fd9ab13800b32dff4a7b35c041.
 - **Pinned** — The named unit passes0.648s on byte-identical d60dfa8 production. Exact source and evidence: work/orb-unit-playerframe-stage/ and work/orb-pickup-playerframe-unit.log. The failed full-run log remains in work/verified-d60dfa8.log; this repair changes no runtime behavior or native outcome expectations.
+
+
+## Slice — source, persistence and pickup integration verification (2026-10-30)
+
+- **Measured** — Immutable d60dfa8 passed build/vet, generated eye-table consistency, tagged compilation and every default test package except the old world-only XP-pickup unit. Its failure is retained and corrected in the separate player-frame test slice.
+- **Implemented** — Integrated detached scheduler groundwork, orb pose/finite controls, source-based teleport angles, canonical block queries, player-frame orb pickup and direct container component/long-seed loading. Reconciled the historical terrain matrix while retaining partial status and remaining limits.
+- **Pinned** — Final immutable9b6855e build/vet/gencheck/tagged compilation PASS; full affected internal/server package PASS294.001s. Other package sources/tests are byte-identical to d60dfa8, whose full run passed world0.313s, worldgen14.871s, public server8.054s, full default blackbox125.505s and every remaining package. Logs: work/verified-d60dfa8.log and work/verified-9b6855e.log. Per-slice native comparisons remain the behavioral evidence; no full live-oracle, GUI or production-load claim is made.
