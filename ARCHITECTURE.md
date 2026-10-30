@@ -1433,8 +1433,10 @@ reach and moving-orb pickup timing after teleport remain separate.
 Direct setblock container Items retain components supported by the common item
 patch decoder, using the lossless component string bridge and preserving stack
 identity/count. Chest and generic-container loot seeds accept typed long suffixes.
-Unknown component models retain the previous fallback; separate native item
-persistence and data-restoration readers remain incomplete.
+Unknown component models retain the previous fallback. Native item restoration
+now shares modeled-field decoding while retaining dedicated recursive containers,
+bundles, trim, books and potions. The common writer preserves positive repair
+cost; arbitrary components and full codec/error-boundary parity remain incomplete.
 
 
 Spear use age advances on admitted player-use passes, including during world

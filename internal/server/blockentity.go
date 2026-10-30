@@ -668,6 +668,9 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 	if it.Damage > 0 {
 		comps["minecraft:damage"] = it.Damage
 	}
+	if it.RepairCost > 0 {
+		comps["minecraft:repair_cost"] = it.RepairCost
+	}
 	if it.Ench != "" {
 		lvls := map[string]any{}
 		for _, e := range strings.Split(it.Ench, ",") {
@@ -1004,6 +1007,17 @@ func itemFromNBT(m map[string]any) ItemStack {
 				it.Trim = strings.TrimPrefix(mat, "minecraft:") + "/" + strings.TrimPrefix(pat, "minecraft:")
 			}
 		}
+		decoded := modeledItemComponents(it, comps)
+		// Preserve the dedicated native readers, especially recursive
+		// container entries and trim, which have a richer save shape than
+		// the item command parser. Common fields come from the same decoder
+		// as item commands and direct setblock inventory tags.
+		decoded.Contents, decoded.Bundle = it.Contents, it.Bundle
+		decoded.Trim = it.Trim
+		decoded.BookWritable, decoded.BookWritten = it.BookWritable, it.BookWritten
+		decoded.Potion, decoded.PotionExtra = it.Potion, it.PotionExtra
+		decoded.PotionScaleSet, decoded.PotionScale = it.PotionScaleSet, it.PotionScale
+		it = decoded
 	}
 	return it
 }

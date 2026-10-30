@@ -5,10 +5,10 @@ import (
 	"strings"
 )
 
-// setblockItemComponents reuses the modeled component decoder used by item
+// modeledItemComponents reuses the modeled component decoder used by item
 // commands. Unknown component models retain the loader's existing fallback;
 // they do not prevent an independently modeled component from being restored.
-func setblockItemComponents(base ItemStack, components map[string]any) ItemStack {
+func modeledItemComponents(base ItemStack, components map[string]any) ItemStack {
 	keys := make([]string, 0, len(components))
 	for key := range components {
 		keys = append(keys, key)

@@ -522,7 +522,7 @@ func snbtItems(tag *snbtTag) map[int]ItemStack {
 		}
 		stack := ItemStack{ID: id, Count: count}
 		if components, ok := e.vals["components"]; ok && components.kind == snbtCompound {
-			stack = setblockItemComponents(stack, snbtToValue(components).(map[string]any))
+			stack = modeledItemComponents(stack, snbtToValue(components).(map[string]any))
 		}
 		out[slot] = stack
 	}

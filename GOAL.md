@@ -19366,3 +19366,12 @@ Default components and an unchanged held stack are covered. Duplicate starts, st
 - **Pinned** — Final differential PASS17.94s(native7.00/Go1.93): exact typed replies in intended and unintended dimensions, negative/fractional columns, ranges/removals, both function-plan directions, nested restoration and scheduled neutral sources. WorldCmd15.18s, source-dimension25.71s, unchanged public avatar/world10.496s and units0.140s/regressions2.255s PASS; build/vet/tagged compilation PASS. Evidence: work/forceload-source-manifest.md.
 
 Forced-set changes do not prove actual chunk loading/ticking readiness. Existing parser/result-count limits and builtin level metadata scope remain explicit. The save-completion fixture's physical loader stays independent of this command fix.
+
+
+## Slice — modeled native item restoration and repair-cost persistence (2026-10-30)
+
+- **Measured** — Native data-merge restoration retains damage2 and repair_cost5; Go lost damage despite the canonical query route working. A real save/restart unit then exposed a separate common-writer omission of repair cost. Native baseline and extended repair controls are retained. Java26.2/JDK25.0.5+8 wire observations, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Apply the common modeled-component decoder in itemFromNBT while retaining dedicated recursive container/bundle, trim, book and potion readers. Serialize positive repair_cost in the common item writer. Five-file patch SHA256 8803f2fa22047dbe1246cead3bf128d236f78493faba741bc6e7ac1c434e71ef.
+- **Pinned** — Extended native data-restoration comparison PASS15.59s(native4.97/Go1.78). Build/vet and named nested/disk-restart/component regressions0.456s PASS. Jukebox17.27s, real-server readback of Go block-entity saves32.69s and book editing/signing36.51s PASS. Exact damage/repair/name/trim and nested-content disk expectations remain unchanged. Evidence: work/native-container-components-stage/ and work/native-container-components-slice.md.
+
+This preserves modeled state; arbitrary unsupported components and full codec/error-boundary equivalence remain incomplete. The earlier disk failure is retained as evidence of the writer defect rather than hidden by a weaker expectation.
