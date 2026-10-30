@@ -1034,15 +1034,7 @@ func (s *Server) runPlace(player string, args []string) reply {
 		}
 		return componentReply(commandError("commands.place.jigsaw.failed"))
 	case "structure":
-		if len(args) < 2 {
-			return errTokenEnd("command.unknown.command", 2)
-		}
-		name := normalizeID(args[1])
-		short := strings.TrimPrefix(name, "minecraft:")
-		if !structureNames[short] {
-			return componentReply(commandError("commands.place.structure.invalid", name))
-		}
-		return componentReply(commandError("commands.place.structure.failed"))
+		return s.runPlaceStructure(player, args[1:])
 	}
 	return errToken("command.unknown.argument", 1)
 }

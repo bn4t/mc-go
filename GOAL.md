@@ -19609,3 +19609,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Pinned** — Native PASS 25.01s and Go PASS 5.74s: delay 5000 to 4997, cold 4997, resumed 4994, with positive source water and same-record marker. One-file artifact ee992f2a60a774a861bd43e322f7d1f74e88246710749829225bea3a8c7d3bd7. Runtime remains 47751b7. Does not pin callback consumption, flowing/lava unload, physical cache eviction or Go LastUpdate metadata.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
+
+
+## Slice — explicit swamp-hut structure placement (2026-10-30)
+
+- **Measured** — Native flat-world placement has 84 spruce planks, 16 oak logs, 26 stairs, four fences and one each crafting table, cauldron and potted mushroom, plus persistent witch/cat residents. Explicit detached placement does not register a natural hut: cat eligibility observes existing registered structures and moon phase.
+- **Implemented** — Enable /place structure minecraft:swamp_hut with default/integer/relative positions, world bounds and loaded-chunk checks, detached live-block planning, ordered writes, resident admission and explicit result 1. Preserve natural structure caches and separate command cat finalization.
+- **Pinned** — Differential PASS 17.97s checks layout, material counts, resident state, positioned source, twelve non-full-moon cat choices, result and failures. Detached plan unit PASS 0.174s; build/vet/tagged compilation pass. Five-file artifact 7a213ec181abdfc2e87561ad28a39334c988245bf07a89e919fa9ccaed23a0eb. Other structures, local coordinates, custom registries and independent cross-dimension lifecycle coverage remain incomplete.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
