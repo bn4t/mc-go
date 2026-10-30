@@ -18,7 +18,7 @@ func TestClientTickEndVehicleSpearParity(t *testing.T) {
 			defer c.Close()
 			drainToJoinBlackbox(t, tc.name, pr)
 			awaitPlayReadyBlackbox(t, tc.name, c, pr, pw)
-			sink := newChatSinkTP(pr, pw)
+			sink := newChatSinkResolvedTP(pr, pw)
 			serial := 0
 			markerSeen := func(lines []string, marker string) bool {
 				for _, line := range lines {
@@ -54,6 +54,8 @@ func TestClientTickEndVehicleSpearParity(t *testing.T) {
 				}
 			}
 			command("tick freeze")
+			setupPlayerTickBarrierBB(t, pw)
+			barrier()
 			command("attribute @s minecraft:attack_speed base set 1024")
 			command("fill -2 -57 -2 6 -57 2 minecraft:stone")
 			for ends := 1; ends <= 2; ends++ {
@@ -97,8 +99,7 @@ func TestClientTickEndVehicleSpearParity(t *testing.T) {
 					t.Fatal(err)
 				}
 				barrier()
-				shulkerStepTicks(t, pw, sink, 20)
-				time.Sleep(150 * time.Millisecond)
+				waitPlayerTicksBB(t, pw, func(marker string) []string { return waitForExactSayBB(t, sink, marker, 15*time.Second) }, fmt.Sprintf("ClientEndSpear%d", ends), 20)
 				barrier()
 				condition := `unless data entity @e[tag=tick_end_vehicle_target,limit=1] {Health:100.0f}`
 				if ends == 2 {

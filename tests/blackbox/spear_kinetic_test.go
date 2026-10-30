@@ -273,22 +273,7 @@ func TestSpearKineticParity(t *testing.T) {
 			t.Fatal("game time reply absent")
 			return 0
 		}
-		step := func(n int64) {
-			before := gameTime()
-			sendCommand(t, w, fmt.Sprintf("tick step %d", n))
-			deadline := time.Now().Add(30 * time.Second)
-			for time.Now().Before(deadline) {
-				got := gameTime()
-				if got > before+n {
-					t.Fatal("step overshoot", got, before+n)
-				}
-				if got == before+n {
-					return
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-			t.Fatal("step incomplete")
-		}
+
 		for index, tc := range []struct {
 			name, base        string
 			delta, attackBase float64
@@ -388,11 +373,12 @@ func TestSpearKineticParity(t *testing.T) {
 				t.Fatal(err)
 			}
 			barrier()
-			step(20)
-			// Simulation stepping can complete before Go's next player pass. The
-			// play_time increment follows spear processing, so observe that pass
-			// before releasing the one use action.
-			settle(1)
+			frozenAt := gameTime()
+			// Use age follows admitted player passes, independently of simulation.
+			settle(20)
+			if now := gameTime(); now != frozenAt {
+				t.Fatal("use wait advanced simulation", frozenAt, now)
+			}
 			release()
 			barrier()
 			armed = false

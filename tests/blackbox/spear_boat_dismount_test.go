@@ -480,15 +480,14 @@ func TestSpearBoatDismountParity(t *testing.T) {
 				if value := readNumber(target, "Health"); value != float64(100-previous) {
 					t.Fatal("previous damage preparation", leg.name, tc.name, value)
 				}
-				step(8)
 			} else {
 				barrier()
-				step(20)
 			}
-			// Simulation stepping can complete before Go's next player pass. The
-			// play_time increment follows spear processing, so observe that pass
-			// before releasing the one use action.
-			settle(1)
+			frozenAt := gameTime()
+			settle(20)
+			if now := gameTime(); now != frozenAt {
+				t.Fatal("use wait advanced simulation", frozenAt, now)
+			}
 			release()
 			barrier()
 			armed = false

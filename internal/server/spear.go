@@ -13,7 +13,7 @@ import (
 func (s *Server) spearStart(sess *Session, itemID int32, name string) {
 	kw := kineticWeaponMetadata[name]
 	sess.usingItemID = itemID
-	sess.spearStartTick = s.TickCount()
+	sess.spearUseTicks = 0
 	sess.stabbed = map[int32]int64{}
 	x, y, z, _, _, _ := sess.Pos()
 	// playSound(except=holder): the holder's client plays the use sound
@@ -36,8 +36,10 @@ func (s *Server) spearJabTick(sess *Session) {
 	if !ok {
 		return
 	}
-	tick := s.TickCount()
-	hot := int(tick-sess.spearStartTick) - kw.delayTicks
+	tick := s.TickCount() // Contact cooldown follows level time, not use age.
+	age := sess.spearUseTicks
+	sess.spearUseTicks++ // Native onUseTick sees age before remaining-duration decrement.
+	hot := int(age) - kw.delayTicks
 	if hot < 0 {
 		return
 	}

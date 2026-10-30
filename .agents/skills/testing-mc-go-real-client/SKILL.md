@@ -424,3 +424,9 @@ behavior by normalizing yaw afterward. Use a keepalive-only command-state probe
 or atomic function capture, while retaining actual teleport/chunk acknowledgements
 for physical-action fixtures. Player arrival remainder and later movement
 normalization are separate observations.
+
+
+Held-use age and remembered-contact cooldown can belong to different clocks.
+Warm use with actual admitted player ticks while asserting unchanged world time;
+then test contact expiry with a separate exact simulation delta. Preserve the
+original numeric outcomes when migrating a fixture's clock domain.

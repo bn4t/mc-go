@@ -334,11 +334,11 @@ type Session struct {
 	// reads the holder's forward speed from it.
 	lastDelta                [3]float64
 	receivedMovementThisTick bool
-	// spearStartTick gates the kinetic jab's delay; stabbed is the
-	// holder's recentKineticEnemies (entity id -> game tick).
-	spearStartTick int64
-	stabbed        map[int32]int64
-	lastHurt       float32
+	// spearUseTicks advances on admitted active player-use passes; stabbed
+	// retains the distinct level-game-time contact cooldown timestamps.
+	spearUseTicks int64
+	stabbed       map[int32]int64
+	lastHurt      float32
 	// lastHurtBy is the entity id of the most recent damage source's
 	// attacker, for killed_by/kill-score stat attribution.
 	lastHurtBy int32

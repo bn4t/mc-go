@@ -1435,3 +1435,10 @@ patch decoder, using the lossless component string bridge and preserving stack
 identity/count. Chest and generic-container loot seeds accept typed long suffixes.
 Unknown component models retain the previous fallback; separate native item
 persistence and data-restoration readers remain incomplete.
+
+
+Spear use age advances on admitted player-use passes, including during world
+freeze, beginning at0 before increment. Remembered-contact cooldown remains on
+level game time. Native controls distinguish these clocks independently and
+retain exact contact outcomes. Stack changes, duplicate starts, complete use
+retirement, hand metadata and wear remain separate.

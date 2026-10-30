@@ -107,7 +107,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   after the relevant item/update receipt; world tick steps and wall-clock sleeps
   do not prove that a player cooldown has elapsed. Before releasing a one-shot
   held-use probe after world stepping, observe the player pass that processes it.
-  Preserve exact outcome checks.
+  Preserve exact outcome checks. Held-use age and remembered-contact cooldown
+  can use different clocks; pin player-only waits and explicit simulation deltas
+  independently instead of treating one successful hit as proof of both.
 - Conditional command witnesses and their barrier waits must match the exact
   decoded `/say` message body. Substrings can match syntax-error echoes,
   sender names or unconditional suffix markers. Establish block-entity creation
