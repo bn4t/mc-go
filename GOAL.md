@@ -19163,3 +19163,12 @@ This pins the first actual tick inside a full stone enclosure with one air exit.
 - **Pinned** — Strict32-case differential PASS82.38s, complete32366-state full-cube census/union/live-world units0.164s, race3.698s/default compile0.448s/tagged build PASS. Existing ten forced-air controls across both gravity states PASS51.16s. Final exits/source hashes: work/orb-shape-fixed-stage/manifest.json.
 
 The new wire cases cover NoGravity first-tick clear corridors. Scalar initial inside-solid detection, later trajectories, fluids, hard-entity collisions and arbitrary partial-shape clipping remain separate.
+
+
+## Slice — cloud Saturation doses and per-victim lifetime (2026-10-30)
+
+- **Measured** — Native player duration0/200 and scale0 cloud controls deliver one full Saturation food dose with no stored status; a villager receives no Saturation status. DurationOnUse changes finite lifetime after each victim, after radius removal, with the-1 infinite sentinel preserved. Wire and factual public callback/field observations, Java26.2/JDK25.0.5+8, runtime SHA1 86765a5899bd9c96461036a628796b4245715058.
+- **Implemented** — Use the instantaneous classifier for player/mob cloud doses, add typed DurationOnUse save/load/default and raw summon hydration, and apply radius-first per-victim lifetime adjustment with retirement at<=0. Seven-file patch SHA256 371bd6bc3dd55081ee5565141afa42397bbc28038428645b88d0e0602d98a011, depending on direct drinking9d20cc8.
+- **Pinned** — Player differential PASS17.93s(native3.40/Go1.74), mob19.13s(native2.91/Go1.83), existing thrown-potion66.57s, units0.796s/race2.027s/related0.935s, vet/default compile0.119s/tagged build PASS. Actual summon hydration has a regression test: the first helper-only implementation missed the separate raw summon route. Final exits and source manifest: work/saturation-cloud-family-stage/.
+
+Failed diagnostics are retained: correct food/no-status with a surviving cloud exposed the lifetime gap, and a surviving first cloud contaminated the next player's pools. The retirement guard and separate food/status/retirement receipts remain strict. A cache-interrupted race build is retained as setup failure; the completed rerun passes. This does not add full cloud region persistence/codec or arbitrary reapplication delay; splash and arrow origins remain separate.

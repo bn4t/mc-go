@@ -359,3 +359,9 @@ Observer rotation probes must retain fresh spawn packets across readiness and
 decode LpVec3 before spawn angles. Keep body and head expectations separate.
 For a pitch-only unchanged-head control, verify the new authoritative pitch and
 observe actual player ticks; packet silence alone can mean the input was dropped.
+
+
+A one-dose retirement guard can expose an adjacent cloud lifetime defect. Keep
+that guard and record food, status and retirement separately; a surviving first
+cloud can contaminate a later player. Verify raw summon hydration through the
+actual command, since it can bypass generic entity load helpers.

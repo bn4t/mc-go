@@ -394,6 +394,7 @@ type Entity struct {
 	CloudPotionContents string
 	CloudWait           int32
 	CloudDuration       int32
+	CloudDurationOnUse  int32
 	CloudWaiting        bool
 	CloudAge            int32
 	CloudRadius         float32

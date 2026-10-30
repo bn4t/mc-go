@@ -1500,6 +1500,9 @@ func (s *Server) runSummon(player string, args []string) reply {
 				if v, ok := tag.vals["Duration"]; ok {
 					e.CloudDuration = int32(snbtNum(v))
 				}
+				if v, ok := tag.vals["DurationOnUse"]; ok {
+					e.CloudDurationOnUse = int32(snbtNum(v))
+				}
 				if v, ok := tag.vals["WaitTime"]; ok {
 					e.CloudWait = int32(snbtNum(v))
 				}
@@ -9093,14 +9096,13 @@ func (s *Server) cloudTickStep() {
 			for _, dose := range potionCloudDoses(ep, now) {
 				id, ticks := dose.id, dose.ticks
 				inst := mobEffectInst{amplifier: dose.amplifier, hide: dose.hide}
-				if id == effectInstantHealth || id == effectInstantDamage {
+				if isInstantaneousEffect(id) {
 					s.mobInstantEffectScaled(mobOrSess, id, inst.amplifier, 0.5, src)
 				} else {
 					s.mobGiveEffectFlags(mobOrSess, id, inst.amplifier, ticks, dose.flags, src)
 				}
 			}
-			ep.CloudRadius += ep.CloudRadiusOnUse
-			return ep.CloudRadius >= 0.5
+			return cloudAfterDose(ep)
 		}
 		dead := false
 		for _, v := range s.entities.All() {
@@ -9145,7 +9147,7 @@ func (s *Server) cloudTickStep() {
 			for _, dose := range potionCloudDoses(ep, now) {
 				id, ticks := dose.id, dose.ticks
 				inst := mobEffectInst{amplifier: dose.amplifier, hide: dose.hide}
-				if id == effectInstantHealth || id == effectInstantDamage {
+				if isInstantaneousEffect(id) {
 					s.applyInstantEffectScaled(sess, id, inst.amplifier, 0.5, psrc)
 				} else {
 					if dose.custom {
@@ -9156,10 +9158,10 @@ func (s *Server) cloudTickStep() {
 					}
 				}
 			}
-			ep.CloudRadius += ep.CloudRadiusOnUse
-			return ep.CloudRadius >= 0.5
+			dead = !cloudAfterDose(ep)
+			return !dead
 		})
-		if ep.CloudRadius < 0.5 {
+		if dead || ep.CloudRadius < 0.5 {
 			discard()
 		}
 	}

@@ -1127,6 +1127,9 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if typeName == "experience_orb" {
 		orbSavedFields(e, m)
 	}
+	if typeName == "area_effect_cloud" {
+		m["DurationOnUse"] = e.CloudDurationOnUse
+	}
 	if typeName == "allay" {
 		// Allay.addAdditionalSaveData's putLong — emitted always,
 		// even at 0.
@@ -1367,6 +1370,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	}
 	if name == "experience_orb" {
 		loadOrbSavedFields(e, save)
+	}
+	if name == "area_effect_cloud" {
+		e.CloudDurationOnUse, _ = nbtInt32(save["DurationOnUse"])
 	}
 	if name == "item" {
 		e.ItemHP = int32(itemSavedShort(save["Health"], 5))
@@ -2011,6 +2017,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	}
 	if name == "experience_orb" {
 		known["Value"], known["Count"] = true, true
+	}
+	if name == "area_effect_cloud" {
+		known["DurationOnUse"] = true
 	}
 	extras := map[string]any{}
 	for k, v := range save {

@@ -1322,7 +1322,12 @@ trajectories remain separate.
 Saturation potion drinking delivers one food/saturation dose regardless of
 stored duration or duration scale, without adding an active effect. Its shared
 food-dose helper does not change the separate active-tick eligibility rules.
-Splash/cloud admission and arrows' stored-status delivery remain separate.
+Cloud admission also delivers Saturation directly, at full food strength despite
+cloud half-dose scaling; nonplayer mobs retain no Saturation status. Typed
+DurationOnUse adjusts finite cloud lifetime after each victim, after radius
+removal, and preserves the-1 sentinel. Raw summon and field save/load are pinned;
+complete cloud persistence, reapplication delay, splash and arrow origins remain
+separate.
 
 
 Execute contexts and child source frames retain rotation snapshots. At adopts
