@@ -467,13 +467,17 @@ func TestDeathDropsInventory(t *testing.T) {
 
 func TestXPOrbPickup(t *testing.T) {
 	s := New("unused")
+	t.Cleanup(s.Stop)
 	s.GameMode = GameModeSurvival
 	sess := survivalSession(t, s, "Learner")
 	e := s.spawnXPOrb(dimOverworld, 0.5, 0.5, 0.5, 5)
 	if e == nil {
 		t.Fatal("no orb")
 	}
-	s.itemTickStep()
+	if !sess.gameplayTickReady() || !sess.spawned.Load() {
+		t.Fatal("player was not admitted for a gameplay frame")
+	}
+	s.playerTickOwned()
 	if s.entities.Count() != 0 {
 		t.Fatalf("orb not collected: %d entities", s.entities.Count())
 	}

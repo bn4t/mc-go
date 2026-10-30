@@ -19335,3 +19335,9 @@ Unsupported component models and separate itemFromNBT persistence/data restorati
 - **Measured** — Documentation audit found that the terrain matrix still said legacy structures remained unimplemented, despite the committed2026-10-29 ocean/nether/end and overworld-land slices and their differential tests.
 - **Implemented** — Update the matrix to reference that existing scoped coverage and retain the documented structure-generated-entity and spawn-override gaps. The terrain row remains partial.
 - **Pinned** — Cross-checked the existing structure implementation files, named TestStructure tests and recorded slice evidence. This is a documentation reconciliation; no new native world-generation run or broader parity claim is made.
+
+## Slice — player-frame dispatch in the XP pickup unit (2026-10-30)
+
+- **Measured** — Immutable integration d60dfa8 failed only TestXPOrbPickup: the old unit invoked itemTickStep and expected collection, while the independently verified runtime now dispatches pickup on admitted player frames. All other package checks passed.
+- **Implemented** — Test-only correction checks actual admission/spawn state and invokes playerTickOwned. Preserve the original zero remaining entities, XP5 and level0 assertions; add complete server teardown. One-file patch SHA256 0abdc0d60182526fb2eec3f6eaeb8420459b75fd9ab13800b32dff4a7b35c041.
+- **Pinned** — The named unit passes0.648s on byte-identical d60dfa8 production. Exact source and evidence: work/orb-unit-playerframe-stage/ and work/orb-pickup-playerframe-unit.log. The failed full-run log remains in work/verified-d60dfa8.log; this repair changes no runtime behavior or native outcome expectations.
