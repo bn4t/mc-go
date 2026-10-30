@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"log"
 	"net"
 	"time"
 
@@ -62,6 +63,7 @@ func (sess *Session) write(id int32, data []byte) error {
 	projected, err := sess.projectJavaOutbound(id, data)
 	if err != nil {
 		if !errors.Is(err, ErrJavaUnsupportedCosmetic) {
+			log.Printf("%s dropped: outbound packet 0x%02x: %v", sess.getName(), id, err)
 			sess.closeQueue()
 		}
 		return err
@@ -97,6 +99,9 @@ func (sess *Session) enqueue(pkt sendPkt) error {
 	}
 	// Seal admission before releasing the lock so no producer can queue a
 	// later packet after an earlier packet was rejected.
+	if !sess.closing.Load() {
+		log.Printf("%s dropped: %v (%d packets, %d bytes queued)", sess.getName(), ErrOutboundLimit, sess.outPackets, sess.outBytes)
+	}
 	sess.closeQueueLocked()
 	sess.outMu.Unlock()
 	if sess.conn != nil {
@@ -180,6 +185,9 @@ func (sess *Session) applyOne(pkt sendPkt) bool {
 		return false
 	}
 	if err := sess.pw.WritePacket(pkt.id, pkt.data); err != nil {
+		if !sess.closing.Load() {
+			log.Printf("%s dropped: write packet 0x%02x after %v: %v", sess.getName(), pkt.id, time.Since(started).Round(time.Millisecond), err)
+		}
 		return false
 	}
 	if pkt.id == sess.ids().PlayKeepAliveCB {
