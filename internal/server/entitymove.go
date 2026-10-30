@@ -148,6 +148,11 @@ func (s *Server) entityMove(e *Entity, w *world.World, half, height, dx, dy, dz,
 	// vanilla gates restitution on canSimulateMovement && ((|rawY|>0
 	// && verticalCollision) || horizontalCollision).
 	if (dy != 0 && vColl) || hColl {
+		// Restitution uses effective gravity; NoGravity also removes its
+		// contribution while resolving the remaining fraction of a move.
+		if e.NoGravity {
+			gravity = 0
+		}
 		s.restituteMove(e, w, xCol, zCol, vColl, vCollBelow, cy, dx, dy, dz, gravity, airDrag, living)
 	}
 	// SlimeBlock.stepOn — applyEffectsFromBlocks calls the support

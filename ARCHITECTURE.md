@@ -104,6 +104,8 @@ step-up, cumulative piston limits and scaled variants remain separate.
 
 Embedded regular items apply fluid/gravity acceleration before closest-space
 escape velocity, then move without collision and apply float air drag/friction.
+Restitution uses zero effective gravity for NoGravity entities, including the
+remaining fraction across a retained contact gap; item controls pin this path.
 The same float arithmetic applies to ordinary items. Five full-block single-exit
 chambers with and without gravity pin direction, bounds and motion/displacement
 relations. Item neighbor selection now checks occupied collision volume in the
