@@ -18886,3 +18886,10 @@ Exhaustion thresholds/quanta, imported pool ranges and automatic Peaceful restor
 - **Pinned** — Five-file SHA256 `e46fd2a9cb027df974b99081b5f77ce216c37cb535e5e3d685bed97fcb40881b`, base0f812ec. Build/vet PASS; focused units0.614s, final focused0.159s/server vet and four explicitly named tests0.092s PASS. Tests cover1000 blocked plus3 eligible records, ordering, duplicates, first-request suppression, activation once, clear/copy exclusion and immutable mixed-phase snapshots. Exact exported source hashes match the manifest. Evidence: `work/scheduled-relative-core-manifest.txt`, `work/scheduled-relative-core-slice.md`, `work/scheduled-activation-aging-bothfresh.log` and `work/scheduled-activation-copyphases.log`.
 
 This is the queue mechanism only. Startup still uses its committed eager restoration path; dormant-chunk activation is not fixed by this commit. Admission policy, native/Go restart proof, manual/no-session stepping and forced-ticket interactions belong to the next integration slice. Unload/repack and cross-chunk sub-tick ordering remain open.
+
+
+## Slice — verify Peaceful food and saved-tick primitives (2026-10-30)
+
+- **Measured** — Verify immutable commit2437916 with concurrent agent work excluded from the archive.
+- **Implemented** — No additional production changes; record the integration gates before publication. Startup still eagerly restores saved ticks; the new relative queue primitives await policy binding.
+- **Pinned** — Build/vet PASS, tagged blackbox compilation0.632s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server407.453s, world0.283s, worldgen13.756s, publicserver9.603s and default blackbox242.998s. All remaining packages pass. Evidence: `work/verified-2437916.log`. Individual native controls remain in the preceding slices; no full native-oracle, graphical-client or realistic-load performance claim.
