@@ -19172,3 +19172,12 @@ The new wire cases cover NoGravity first-tick clear corridors. Scalar initial in
 - **Pinned** — Player differential PASS17.93s(native3.40/Go1.74), mob19.13s(native2.91/Go1.83), existing thrown-potion66.57s, units0.796s/race2.027s/related0.935s, vet/default compile0.119s/tagged build PASS. Actual summon hydration has a regression test: the first helper-only implementation missed the separate raw summon route. Final exits and source manifest: work/saturation-cloud-family-stage/.
 
 Failed diagnostics are retained: correct food/no-status with a surviving cloud exposed the lifetime gap, and a surviving first cloud contaminated the next player's pools. The retirement guard and separate food/status/retirement receipts remain strict. A cache-interrupted race build is retained as setup failure; the completed rerun passes. This does not add full cloud region persistence/codec or arbitrary reapplication delay; splash and arrow origins remain separate.
+
+
+## Slice — direct Saturation splash dispatch (2026-10-30)
+
+- **Measured** — A single actual held custom splash with Saturation duration0/200 gives players one full food dose and leaves no Saturation status on players or nearby villagers. A companion Glowing effect proves the villager received the splash. Native baseline passes both controls while Go fails both, total23.11s. Wire and public dispatch facts, Java26.2/JDK25.0.5+8, runtime SHA1 86765a5899bd9c96461036a628796b4245715058.
+- **Implemented** — Use the three-effect instantaneous classifier in both splash recipient paths, retaining direct-dose behavior and separate scaling for stored noninstant effects. Three-file patch SHA256 4d1a1af53cd1208fd6690dccd66d22f79c6083408fbf90939b7817d51801a8af.
+- **Pinned** — Actual-use differential PASS29.59s, existing splash geometry52.44s, units0.262s/race6.456s/related2.294s, vet/default compile0.080s/tagged build PASS. Tests retain exact food pools, positive NPC Glowing, absent Saturation, consumed item and retired projectile. Sources/final exits: work/saturation-splash-stage/.
+
+These controls do not establish every splash geometry, amplifier or recipient type. Arrows retain their distinct stored-effect delivery.

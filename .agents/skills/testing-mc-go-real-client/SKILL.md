@@ -365,3 +365,9 @@ A one-dose retirement guard can expose an adjacent cloud lifetime defect. Keep
 that guard and record food, status and retirement separately; a surviving first
 cloud can contaminate a later player. Verify raw summon hydration through the
 actual command, since it can bypass generic entity load helpers.
+
+
+Pair splash no-status assertions with a positive noninstant effect on the same
+recipient. Actual held-item consumption, projectile retirement and exact food
+pools separately constrain the player's result; a missed throw proves nothing
+about instantaneous dispatch.

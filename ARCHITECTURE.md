@@ -1326,8 +1326,10 @@ Cloud admission also delivers Saturation directly, at full food strength despite
 cloud half-dose scaling; nonplayer mobs retain no Saturation status. Typed
 DurationOnUse adjusts finite cloud lifetime after each victim, after radius
 removal, and preserves the-1 sentinel. Raw summon and field save/load are pinned;
-complete cloud persistence, reapplication delay, splash and arrow origins remain
-separate.
+complete cloud persistence and reapplication delay remain separate. Splash
+Saturation likewise delivers one full player food dose without a stored status;
+nearby nonplayer recipients retain no Saturation status. Noninstant splash
+durations still scale, and arrows retain their separate stored-effect route.
 
 
 Execute contexts and child source frames retain rotation snapshots. At adopts

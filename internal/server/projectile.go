@@ -1819,7 +1819,7 @@ func (s *Server) splashApplyMob(e, t *Entity, effects []splashEffect, prox float
 		if !ok {
 			continue
 		}
-		if eff.name == "instant_health" || eff.name == "instant_damage" {
+		if isInstantaneousEffect(id) {
 			s.mobInstantEffectScaled(t, id, eff.amp, prox, &damageInfo{typeName: "indirect_magic", cause: e.arrowShooter, direct: e.ID})
 			continue
 		}
@@ -1846,7 +1846,7 @@ func (s *Server) splashApplyPlayer(e *Entity, sess *Session, effects []splashEff
 		if !ok {
 			continue
 		}
-		if eff.name == "instant_health" || eff.name == "instant_damage" {
+		if isInstantaneousEffect(id) {
 			s.applyInstantEffectScaled(sess, id, eff.amp, prox, damageSource{typeName: "indirect_magic", cause: e.arrowShooter, direct: e.ID})
 			continue
 		}

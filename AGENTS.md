@@ -165,6 +165,8 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Pin actual raw summon hydration as well as direct load helpers: some entity
   branches return before generic applyEntitySave. Preserve one-dose retirement
   guards and split food/status/lifetime receipts when diagnosing cloud effects.
+  For splash no-status assertions, require a positive companion effect on the
+  same recipient so a missed throw cannot masquerade as correct dispatch.
 - Each server leg must independently satisfy meaningful expected values.
   Equal empty captures, stale menu caches or a decoder that truncates unknown
   definitions do not establish parity. Diagnose fixture failures on an
