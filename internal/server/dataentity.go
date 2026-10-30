@@ -1796,6 +1796,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			}
 		}
 	}
+	if name == "cat" {
+		applyCatVariantSave(e, save)
+	}
 	// TamableAnimal.readAdditionalSaveData: a parsed Owner reference
 	// stores the DATA_OWNERUUID slot and flips setTame(true) —
 	// wolf/cat/parrot share the chain. Sitting lands independently.

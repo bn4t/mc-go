@@ -19555,3 +19555,12 @@ blackbox compilation PASS. The initial restricted-shell public tests could not
 bind loopback sockets; the same immutable tree passed with local networking
 enabled. The earlier full `106b500` default-suite evidence remains applicable;
 no new full differential or real-client soak claim is made for this small merge.
+
+
+## Slice — cat variant hydration and defined metadata defaults (2026-10-30)
+
+- **Measured** — Native 26.2 saved bodies establish black/classic defaults and restore explicit all_black/royal holders. Actual spawn-ID paired metadata omits black/classic and emits tabby as accessor 20, serializer 21, holder 9 after mutation.
+- **Implemented** — Restore known cat holders during native entity hydration; absent fields retain existing body values. Correct fresh cat default and packet omission from tabby to black.
+- **Pinned** — Native-write to native/Go-load control PASS 69.96s; fresh-body wire control PASS 25.28s; focused units PASS 0.114s and both build modes compile. Six-file artifact beb0294edbb12ad25bcc62d1a747a576d90192cb3d9c284c9aea8c7323e4ebab. Loaded observer lifecycle remains unproved; the older salmon air mismatch reproduces before this change and is not repaired here.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.

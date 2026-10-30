@@ -3969,9 +3969,9 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		case "cat":
 			tamableMetaPack(&b, e)
 			// Cat's DATA_VARIANT_ID (20, cat_variant holder) packs
-			// only off the tabby default; DATA_SOUND_VARIANT_ID
+			// only off the black default; DATA_SOUND_VARIANT_ID
 			// sits at 24 after the feline-behavior slots.
-			if id := holderVariantID("cat", e.VariantName); id != 9 {
+			if id := holderVariantID("cat", e.VariantName); id != 1 {
 				b.Byte(20)
 				b.Byte(21) // serializer: cat_variant
 				b.VarInt(id)
@@ -4327,7 +4327,7 @@ var holderSoundVariantIDs = map[string]map[string]int32{
 // the value defineSynchedData registers, which stays unpacked on the
 // wire and is what /data emits for an unmodified summon.
 var holderVariantDefault = map[string]string{
-	"cat": "tabby", "frog": "temperate", "wolf": "pale",
+	"cat": "black", "frog": "temperate", "wolf": "pale",
 	"pig": "temperate", "cow": "temperate", "chicken": "temperate",
 	"salmon": "medium",
 }

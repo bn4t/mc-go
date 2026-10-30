@@ -1497,3 +1497,6 @@ order. Fractional saturation and multiple spending quanta remain separate limits
 The native firework explosion leaf always includes shape, including small_ball;
 it is a required field rather than an omitted default. Common item firework
 component coverage and parser admission rules remain separate work.
+
+
+Native cat hydration restores known variant and sound holders. Missing fields retain existing body values; a fresh body defines black/classic. Spawn metadata omits those defaults and later tabby changes emit the matching holder. Loaded observer lifecycle and arbitrary custom holders remain unproved.
