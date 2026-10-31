@@ -19873,3 +19873,27 @@ Official 26.2 runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3ba
 - **Measured:** real26.2 native disk loading skips unregistered `test:bogus_boat`/`minecraft:foo_minecart` roots and passenger nodes, admits their known oak_boat/pig sibling, and saves exactly that boat/pig tree. Runtime tag witness, native clean exits and direct saved-region readback establish admission and persistence. Native also leaves unused entity-region files exactly0bytes after clean shutdown; the prior Go loader rejected those files. Source: real server storage/command observations, Temurin25.0.5+8, bundled server SHA256183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8; reproduction/evidence in `work/entity-invalid-native/` and matching logs.
 - **Implemented:** composite preflight skips unregistered passenger nodes, restoring valid sibling admission; registered entities with unsupported serializers still keep the complete tree opaque. Unregistered standalone roots retain the existing opaque preservation policy. Entity-only loading/merging accepts exactly zero-byte native region files as empty, including writing the first selected record; nonempty truncated regions remain errors. Ownership receipts and partial-write retry semantics are unchanged.
 - **Pinned:** original `TestVehicleNativeInvalidIdentifiers` fails on e99b785 and passes with its boat/pig assertion preserved, plus save/read/restart and standalone invalid-root retention. `TestNativeEntityCompositeRegistrationBoundary` retains opaque registered arrow/cloud/XP/marker controls. `TestEntityRegionsNativeEmptyFiles` covers zero-byte read, empty selection and first record; existing nonzero corruption/no-write, raw-neighbor, ownership/retry and deep-tree controls pass. Final Go reader accepts the entire actual native fixture world, including three zero-byte files.
+
+## Slice — combined persistence and gameplay verification (2026-10-31)
+
+- **Measured:** the immutable e99b785 combined default run exposed one regression:
+  valid boat/pig siblings were excluded when their passenger list contained
+  unregistered IDs. Native load/readback established the correction recorded
+  above and separately established legitimate zero-byte entity-region files.
+- **Implemented:** commit c44d239 includes the corrected restoration boundary,
+  native empty-file handling and the completed persistence, mount save-view,
+  hunger, cargo-loot, desert-portal, creeper-ignition and fixture slices. Updated
+  the parity matrix, architecture, agent guidance and local testing skill;
+  broader format/lifecycle coverage remains partial.
+- **Pinned:** immutable git archive c44d239 passes build, default vet, both
+  command-eye/entity-bounds generator checks, tagged blackbox compilation and
+  the full default `go test -count=1 -timeout 20m ./...` suite with localhost
+  networking enabled. Internal server477.354s, world0.830s, worldgen25.138s,
+  public server18.490s and default blackbox239.810s; final process exit0.
+  The earlier combined e99b785 native subset passed creeper ignition23.08s,
+  generated cargo/menu/restart78.53s and mounted saved/live positions24.65s.
+  The corrective artifact separately passes actual native invalid-node/empty-file
+  readback and focused restoration controls. These are scoped native pins,
+  not a full native-oracle sweep or graphical-client playtest. Evidence:
+  `work/final-c44d239-check.log`, `work/final-e99b785-oracle.log` and
+  `work/entity-invalid-ready-evidence.txt`.
