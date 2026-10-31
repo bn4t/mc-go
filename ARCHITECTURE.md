@@ -1574,7 +1574,9 @@ Cargo loot evaluates biome-only entry location conditions at the vehicle
 position in its dimension. This keeps non-sulfur generated mineshaft loot on
 the exact seeded evaluator. Missing biome context, compound predicates and
 other unsupported shapes retain the approximate fallback; block containers
-still lack this context. Native sulfur-biome true-branch coverage remains open.
+still lack this context. Native sulfur and nonsulfur generated-cart bags are now both pinned through
+actual menus and Go restart, with independent cart and distant actor dimension/biome
+witnesses. Direct disc selection and biome-override persistence remain separate.
 
 Overworld flat command portal corner searches use the generator's original
 block strata, including air and fluids. Natural generation retains its noise
