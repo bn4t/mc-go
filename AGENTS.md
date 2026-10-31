@@ -398,3 +398,10 @@ physiology snapshot, store all values and the admitted-frame counter inside the
 function, then query the stored scores outside it. Require a function receipt
 and every field; a marker alone does not prove suppressed queries were observed.
 Report sampled threshold brackets honestly rather than inventing an unseen frame.
+
+Raw summon attribute probes must inspect saved instances before queries that can
+materialize them. Pin raw base, effective value, permanent modifier identity,
+amount and operation alongside a physical consumer. Distinguish raw summons,
+live edits and cold restoration: class overrides can change effective maximum
+health before a living frame caps Health. A normalized cold record does not
+establish the ordering for an initially over-maximum record.

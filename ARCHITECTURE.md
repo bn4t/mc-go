@@ -1655,3 +1655,11 @@ Short contact settles dry without a lasting burn. Already-burning contact adds
 one or two ticks before the frame decrement, without shortening a longer burn.
 The aggregated effect runs once per inside pass; movement ingress and mixed
 hazards are separate from the stationary frame measurements.
+
+Generic living raw summons and recursive living passengers load modern
+attributes and permanent modifiers into runtime instances. Health reads the
+loaded maximum before measured class overrides; a materialized max-health base
+reaches its living consumer on an admitted frame without healing an injured body.
+Effective scale remains distinct from the first-frame collision-box refresh.
+Horse, pig and wild-wolf cases are pinned. Existing live-save loading order,
+owned-wolf health behavior and other class-specific raw readers remain separate.

@@ -27,7 +27,9 @@ The server is under active parity development. The detailed supported cases
 and remaining work are tracked in [GOAL.md](GOAL.md); a checked scenario does
 not establish complete vanilla behavior for its entire subsystem.
 
-Recent persistence checks retain supported living corpses and resume their saved
+Generic living summons and passengers now apply modern attributes and permanent
+modifiers, with measured scale and health consumers; class-specific loading
+remains partial. Recent persistence checks retain supported living corpses and resume their saved
 death countdown without replaying drops. Container menus and item commands now
 unpack latent loot using the owning container's biome. Player powder-snow melt,
 inactive fire counters and stationary fire/soul-fire warmup have native

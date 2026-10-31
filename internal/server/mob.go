@@ -922,6 +922,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			e.SoundVariant = rollSoundVariant(name)
 		}
 		if tag != nil {
+			loadedAttributes := applyRawLivingSummonAttributes(e, tag)
 			// Rotation:[yaw,pitch] overrides create's random snapTo yaw.
 			if rot, ok := tag.vals["Rotation"]; ok && len(rot.items) >= 2 {
 				e.Yaw = float32(snbtNum(rot.items[0]))
@@ -1257,7 +1258,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			// Health and Motion land like vanilla's Entity.load — the
 			// spawn's dirty pack carries the moved entries after the
 			// summon reply.
-			if hv, ok := tag.vals["Health"]; ok {
+			if hv, ok := tag.vals["Health"]; ok && !loadedAttributes {
 				e.Health = float32(snbtNum(hv))
 			}
 			if mv, ok := tag.vals["Motion"]; ok && mv.kind == snbtList && len(mv.items) == 3 {
@@ -2619,6 +2620,7 @@ func (s *Server) summonPassengers(d *dimension, veh *Entity, items []*snbtTag) {
 		if !ok {
 			continue
 		}
+		loadedAttributes := applyRawLivingSummonAttributes(g, sub)
 		// The passenger key set mirrors the rider-load keys vanilla's
 		// Entity.load passes through: IsBaby where the class reads it,
 		// Age/InLove on AgeableMobs, Health, Motion, Rotation, Silent,
@@ -2631,7 +2633,7 @@ func (s *Server) summonPassengers(d *dimension, veh *Entity, items []*snbtTag) {
 			g.Age = int32(snbtNum(v))
 			g.Baby = g.Age < 0
 		}
-		if v, ok := sub.vals["Health"]; ok {
+		if v, ok := sub.vals["Health"]; ok && !loadedAttributes {
 			g.Health = float32(snbtNum(v))
 		}
 		if v, ok := sub.vals["PersistenceRequired"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
@@ -5094,6 +5096,7 @@ func (s *Server) mobTickStep() {
 				return true
 			})
 		}
+		refreshMaterializedMobMaxHealth(e)
 		// LivingEntity.travel reads movement_speed every living tick —
 		// the lazy AttributeMap instantiates it on that first read, so
 		// the attribute joins the save pack once the mob has ticked.
