@@ -354,3 +354,7 @@ write into a native empty file.
 Distinguish original generator inputs from edited live blocks/biomes in structure
 commands. Establish positive original and edited-biome witnesses before choosing
 a source callback; preserve natural-generation and unsupported-context behavior.
+
+For saved numeric limits, separate absent/wrong-type defaults from valid zero,
+negative and wrapped values. Pin actual deadlines and elapsed-state continuity
+through live edits; a runtime positive-only fallback can hide an ingress bug.

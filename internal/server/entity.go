@@ -1246,6 +1246,11 @@ func (m *Manager) Spawn(e *Entity) *Entity {
 	if name, _ := EntityTypeName(e.Type); name == "creeper" && e.SwellDir == 0 {
 		e.SwellDir = -1
 	}
+	// The construction default is distinct from an explicit zero Fuse
+	// loaded later: native nonpositive fuse limits are valid.
+	if name, _ := EntityTypeName(e.Type); name == "creeper" && e.MaxSwell == 0 {
+		e.MaxSwell = 30
+	}
 	// Entity constructs with the virtual getMaxAirSupply value.
 	airName, _ := EntityTypeName(e.Type)
 	e.AirSupply = mobMaxAirSupply(airName)

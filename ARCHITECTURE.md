@@ -1594,3 +1594,9 @@ original generator biome for coldness, independently of live /fillbiome edits.
 The command source carries original block strata and the flat biome explicitly.
 Noise-generator/non-overworld ocean commands and remaining portal variants stay
 unsupported; exact random spread counts remain outside the pin.
+
+Creeper Fuse uses a typed short: absence/wrong types default to30, while zero
+and negative limits expire on the first simulation tick. Numeric coercion
+preserves short wrapping. A live limit change or repeated ignition preserves
+elapsed countdown; NoAI does not pause an ignited fuse. Full creeper restart and
+explosion damage/geometry remain separate.

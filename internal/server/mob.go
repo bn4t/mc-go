@@ -1549,7 +1549,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.Powered = true
 				}
 				if v, ok := tag.vals["Fuse"]; ok {
-					e.MaxSwell = int32(snbtNum(v))
+					e.MaxSwell = int32(itemSavedShort(snbtToValue(v), 30))
 				}
 				if v, ok := tag.vals["ExplosionRadius"]; ok {
 					e.BlastPower = int32(snbtNum(v))
@@ -5427,11 +5427,7 @@ func (s *Server) mobTickStep() {
 			if e.Swell < 0 {
 				e.Swell = 0
 			}
-			maxSwell := e.MaxSwell
-			if maxSwell <= 0 {
-				maxSwell = 30
-			}
-			if e.Swell >= maxSwell {
+			if e.Swell >= e.MaxSwell {
 				s.explodeCreeper(e)
 				continue
 			}
