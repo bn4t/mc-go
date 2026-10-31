@@ -41,9 +41,9 @@ import (
 //     left aside and shuffles the lot; each stack then takes the last
 //     remaining slot of the shuffled list.
 //
-// A table that uses anything else (conditions, other functions, other
-// entry types) reports false and the caller falls back to the
-// approximate roll.
+// Biome-only location_check entry conditions can be evaluated when the
+// container supplies its origin biome. Other conditions, functions or entry
+// types report false and the caller falls back to the approximate roll.
 
 type lootFillCtx struct {
 	r *worldgen.Legacy
@@ -54,6 +54,12 @@ type lootFillCtx struct {
 // slot assignments; false when the table needs something this does not
 // model.
 func lootFillExact(table string, seed int64, size int, occupied func(int) bool) (map[int]ItemStack, bool) {
+	return lootFillExactInBiome(table, seed, size, occupied, "")
+}
+
+// The current container origin supplies biome-only location conditions. An
+// absent origin or any unmodelled predicate keeps the existing fallback.
+func lootFillExactInBiome(table string, seed int64, size int, occupied func(int) bool, biome string) (map[int]ItemStack, bool) {
 	if seed == 0 {
 		return nil, false
 	}
@@ -108,8 +114,17 @@ func lootFillExact(table string, seed int64, size int, occupied func(int) bool) 
 			total := int32(0)
 			for _, ev := range entries {
 				e, _ := ev.(map[string]any)
-				if e == nil || e["conditions"] != nil {
+				if e == nil {
 					return nil, false
+				}
+				if conditions, present := e["conditions"]; present {
+					matches, supported := lootBiomeConditions(conditions, biome)
+					if !supported {
+						return nil, false
+					}
+					if !matches {
+						continue
+					}
 				}
 				switch e["type"] {
 				case "minecraft:item", "minecraft:empty":
@@ -178,6 +193,32 @@ func lootFillExact(table string, seed int64, size int, occupied func(int) bool) 
 		out[slot] = st
 	}
 	return out, true
+}
+
+// Datapack location_check with a single biome id needs no random draw.
+// Reject additional fields rather than treating a partial predicate as true.
+func lootBiomeConditions(value any, biome string) (bool, bool) {
+	conditions, ok := value.([]any)
+	if !ok {
+		return false, false
+	}
+	matches := true
+	for _, value := range conditions {
+		condition, ok := value.(map[string]any)
+		if !ok || len(condition) != 2 || condition["condition"] != "minecraft:location_check" {
+			return false, false
+		}
+		predicate, ok := condition["predicate"].(map[string]any)
+		if !ok || len(predicate) != 1 {
+			return false, false
+		}
+		want, ok := predicate["biomes"].(string)
+		if !ok || strings.HasPrefix(want, "#") || biome == "" {
+			return false, false
+		}
+		matches = matches && strings.TrimPrefix(want, "minecraft:") == strings.TrimPrefix(biome, "minecraft:")
+	}
+	return matches, true
 }
 
 func asList(v any) []any {
@@ -408,7 +449,11 @@ func containsString(l []string, s string) bool {
 // roll scattered into random empty slots (a seed of 0 - the level's own
 // random in vanilla - rolls a fresh one).
 func unpackLootInto(slots []ItemStack, table string, seed int64) {
-	if fill, ok := lootFillExact(table, seed, len(slots), func(i int) bool { return !slots[i].Empty() }); ok {
+	unpackLootIntoInBiome(slots, table, seed, "")
+}
+
+func unpackLootIntoInBiome(slots []ItemStack, table string, seed int64, biome string) {
+	if fill, ok := lootFillExactInBiome(table, seed, len(slots), func(i int) bool { return !slots[i].Empty() }, biome); ok {
 		for i, st := range fill {
 			slots[i] = st
 		}

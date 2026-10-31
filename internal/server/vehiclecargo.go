@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"mc-go/internal/protocol"
+	"mc-go/internal/world"
 )
 
 // Cargo vehicles share one inventory across menus, native saves and /data.
@@ -95,7 +96,11 @@ func (s *Server) unpackVehicleCargo(e *Entity, c *containerData, player *Session
 	c.lootTable = ""
 	c.lootSeed = 0
 	old := append([]ItemStack(nil), c.slots...)
-	unpackLootInto(c.slots, table, seed)
+	biome := ""
+	if d := s.dims[e.Dim]; d != nil {
+		biome = s.spawnBiomeAt(d, world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))})
+	}
+	unpackLootIntoInBiome(c.slots, table, seed, biome)
 	for slot, previous := range old {
 		if !menuRemoteStackEqual(previous, c.slots[slot]) {
 			s.queueVehicleCargoSlot(e, slot, previous, nil)

@@ -1564,3 +1564,9 @@ Hunger spends at most one four-point exhaustion quantum per admitted player
 frame, strictly above four. Fractional saturation clamps to zero without
 reducing food in the same quantum; regeneration exhaustion waits until the
 next frame.
+
+Cargo loot evaluates biome-only entry location conditions at the vehicle
+position in its dimension. This keeps non-sulfur generated mineshaft loot on
+the exact seeded evaluator. Missing biome context, compound predicates and
+other unsupported shapes retain the approximate fallback; block containers
+still lack this context. Native sulfur-biome true-branch coverage remains open.
