@@ -20080,3 +20080,33 @@ Final native/Go wire comparison PASS14.57s (native3.85s/Go3.37s), exit0. Four-fi
 - **Pinned:** exact three-file slice TestHopperContainerBiomeLootParity PASS37.82s(native16.16/Go12.64), all16 rows and strict pre-input, geometry, bags/counts, consumption, transfer/cooldown controls ran; process exit0. Actual already-unpacked menu yields no loot advancement and fresh armed chest positive grants it. Eight no-session Server.GameTick units plus existing hopper transfer/open/click, block/cargo-origin/matcher/exact-fill/spectator regressions pass; tagged build/default vet0. Default caps, native chest/barrel and explicit seed scope only; redstone transitions, other families, own hopper latent table, entity automation and persistence not newly pinned. Evidence/provenance/source hashes: work/hopper-container-loot-manifest-v1.md and .sha256.
 
 Patch SHA256 `3dfc36521f6c2900d395a747f8d69f0bb05c695707b3ca63fa61f98ea4d2f8e9`, base `ec21a443adb5c59b33cff2c7ba6b32cc21992ea8`. Go1.27.3 and Temurin25.0.5+8; official26.2 runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. The final corrected native wire comparison and Go no-session units complement the original native no-player measurement; the slow original console fixture was not repeated after setup isolation.
+
+
+## Slice — combined fire, raw attributes and hopper verification (2026-10-31)
+
+- **Measured:** Independent native pins establish survival fire/soul-fire warmup,
+  raw living attribute instances and physical consumers, and hopper admission
+  and loot unpacking at the container's biome. The earlier creeper-radius pin
+  also runs against the combined source because its health controls use raw
+  attributes. Separate wolf live-load ordering, supported powder exposure,
+  biome commands and hopper command ingress remain active follow-ups.
+- **Implemented:** Immutable `53f7229` combines the three reviewed slices after
+  published `b97a232`, with scoped README, architecture, agent and skill updates.
+  All implementation agents continue in private exports outside this gate.
+- **Pinned:** Build, default vet, both generated-fact checks, tagged compilation
+  and all 17 default test packages pass with count1 and localhost networking.
+  Internal server303.956s, default blackbox140.211s, world0.315s,
+  worldgen20.487s and public server13.078s; complete driver exit0. The same
+  immutable source and tagged binary pass all four combined native/Go tests:
+  creeper radius31.24s, hopper loot41.31s, fire warmup49.97s and raw living
+  attributes22.54s, aggregate exit0. Complete package membership, executable
+  hashes, results and logs are retained in `work/verified-53f7229-evidence/`;
+  aggregate logs are `work/final-53f7229-check.log` and
+  `work/final-53f7229-oracle.log`. The unchanged slow native player-free hopper
+  measurement remains separate evidence and was not duplicated. This is a full
+  default-suite gate with targeted native comparisons, not a full native sweep.
+
+Toolchain: Go1.27.3, Temurin25.0.5+8, GOMAXPROCS=2 after activation,
+readonly modules and disabled VCS stamping in the archive. Official unpacked
+26.2 runtime SHA256
+`183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
