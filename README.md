@@ -29,9 +29,9 @@ not establish complete vanilla behavior for its entire subsystem.
 
 Recent persistence checks retain supported living corpses and resume their saved
 death countdown without replaying drops. Container menus and item commands now
-unpack latent loot using the owning container's biome. Player powder-snow melt
-and inactive fire counters have native comparisons; initial fire-block warmup
-remains separate work. Creeper ignition, signed fuse/radius values and live fuse
+unpack latent loot using the owning container's biome. Player powder-snow melt,
+inactive fire counters and stationary fire/soul-fire warmup have native
+comparisons; mixed hazards and swept paths remain partial. Creeper ignition, signed fuse/radius values and live fuse
 edits preserve measured packet and countdown behavior. Nonplayer scale changes
 refresh physical bounds on living frames, with measured collision adjustment and
 movement packets; mounted attachment scaling and broader collision contexts

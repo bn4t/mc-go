@@ -392,3 +392,9 @@ can shift packet phase. Retain zero movement packets in timing checks, and recor
 raw arrays before normalizing independently measured native arrival variation.
 A valid raw summon that fails hydration is a separate production defect, not an
 unsupported fixture; preserve that red case when narrowing command-based probes.
+
+Native functions can suppress ordinary command feedback. For an atomic
+physiology snapshot, store all values and the admitted-frame counter inside the
+function, then query the stored scores outside it. Require a function receipt
+and every field; a marker alone does not prove suppressed queries were observed.
+Report sampled threshold brackets honestly rather than inventing an unseen frame.

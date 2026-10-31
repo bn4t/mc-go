@@ -514,3 +514,9 @@ retain zero movement packets when checking exact frame timing. Native attribute
 arrival can vary between a frozen write and the next entity frame: retain raw
 arrays and normalize only observed variation, preserving values and counts.
 Keep raw summon hydration separate from command-driven scale changes.
+
+For atomic exposure measurements, insert the source and store the initial state
+and play_time in one function. Store later snapshots the same way, then read
+the stored scores outside the function: native function feedback can be silent.
+Keep actual sampled threshold brackets and separate movement-triggered effects
+from stationary admitted-frame exposure.

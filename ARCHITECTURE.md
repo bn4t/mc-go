@@ -1608,7 +1608,8 @@ Contact extinguishes independently of mob_griefing and preserves existing freeze
 and thaw behavior. Protection can deny melting while contact still extinguishes.
 Inactive player fire now settles to -20 after contact without changing the
 positive-to-zero clear operation or erasing increasing warmup counters.
-Early fire-block warmup, other modes and swept/mixed-block paths remain separate.
+Other modes and swept/mixed-block paths remain separate; stationary survival
+fire and soul-fire warmup is now pinned below.
 
 Supported generic living corpses remain persistent until physical removal,
 including linked passengers and dying living parents with live riders. Loading
@@ -1647,3 +1648,10 @@ and adjusts grown physical boxes with a free-center search before the ordinary
 entity tracker flush. Scale affects physical dimensions independently of mounted
 saved-Pos conventions. Mounted attachment scaling, other dimension transitions,
 context-sensitive collision shapes and world-border refinements remain partial.
+
+Stationary survival fire and soul-fire contact warms an inactive counter toward
+ignition, clears freezing and deals contact damage before the player is burning.
+Short contact settles dry without a lasting burn. Already-burning contact adds
+one or two ticks before the frame decrement, without shortening a longer burn.
+The aggregated effect runs once per inside pass; movement ingress and mixed
+hazards are separate from the stationary frame measurements.

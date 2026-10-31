@@ -1587,13 +1587,11 @@ func sessInFluidCell(sess *Session, d *dimension, x, y, z float64, names ...stri
 	return false
 }
 
-// playerInsideBlocks is Entity.move's applyEffectsFromBlocks for the
-// player: vanilla players only run the inside-block scan when the
-// client sends a move packet — handleMovePlayer calls player.move —
-// so a stationary client takes no lava, fire or extinguish effect at
-// all. Each call is one move()'s worth of effects: lava ignites
-// fifteen seconds and lands the four-damage lavaHurt, fire blocks
-// ignite eight and hit in_fire, water-family cells extinguish.
+// playerInsideBlocks applies occupied-block effects once per admitted player
+// frame and once per accepted client movement ingress. Lava refreshes burning;
+// the aggregated fire effect warms the counter before ignition and still deals
+// contact damage while inactive. Wet-family contact extinguishes. Frame effects
+// continue while world age is frozen; movement ingress is a separate caller.
 func (s *Server) playerInsideBlocks(sess *Session) {
 	if sess.state.Load() != StatePlay || sess.dead || !sess.spawned.Load() {
 		return
@@ -1637,10 +1635,14 @@ func (s *Server) playerInsideBlocks(sess *Session) {
 		s.damageWith(sess, 4, translatable("death.attack.lava", literal(sess.getName())), srcLava)
 	}
 	if burn > 0 {
-		// FireBlock's entityInside -> igniteForSeconds(8) ->
-		// igniteForTicks(160): the same plain set at 160.
-		if sess.fireTicks < 160 {
-			sess.fireTicks = 160
+		// Fire and soul fire clear freezing independently of ignition and
+		// deal contact damage even while the fire counter is still negative.
+		if pe, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
+			pe.TicksFrozen = 0
+		}
+		wasBurning := sess.fireTicks > 0
+		sess.fireTicks = playerFireContactTicks(sess.fireTicks)
+		if wasBurning != (sess.fireTicks > 0) {
 			s.broadcastSharedFlags(sess)
 		}
 		s.damageWith(sess, burn, translatable("death.attack.inFire", literal(sess.getName())), srcInFire)
