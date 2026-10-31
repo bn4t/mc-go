@@ -417,3 +417,10 @@ and scale are floats. Measure the live point before changing legacy constants;
 do not cast every attachment to float32. Bind ordered passenger IDs to saved
 UUIDs, and retain atomic pre-callback positions alongside admitted-frame seats.
 A frozen world clock does not prove that a player-mounted vehicle did not tick.
+
+Measure command-cache lifetime across edits, repeated calls, saves and cold
+reloads; one successful invocation does not establish retention. Tie retained
+metadata to the actual resident identity, test GC and replacement, and prove
+that missing-column checks do not invoke a provider. Keep temporary runtime
+maps out of saved data and natural generation caches. A copied-save restart
+needs a positive freshly changed terrain receipt, not only a map-count check.

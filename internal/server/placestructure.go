@@ -45,6 +45,7 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 	if !s.blockPosLoaded(d, sender, position[0], position[1], position[2]) {
 		return componentReply(commandError("argument.pos.unloaded"))
 	}
+	seed := s.worldSeed()
 	var baseHeight func(int32, int32, int) int32
 	var source worldgen.CommandStructureSource
 	if d.flat {
@@ -61,8 +62,15 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 		baseHeight = func(int32, int32, int) int32 { return top }
 	} else if d.terrain != nil {
 		baseHeight = d.terrain.g.BaseHeight
+		if short == "ruined_portal_ocean" && d.name == dimOverworld && s.LevelType == LevelTypeNormal {
+			// Normal terrain uses the same overworld noise/biome settings as
+			// the detached planner. Read its actual seed, including zero;
+			// worldSeed's fixed flat fallback does not describe this source.
+			source.NormalOverworld = true
+			seed = d.terrain.g.RS.Seed
+		}
 	}
-	plan, err := worldgen.PlanCommandStructure(s.jigsawRuntimeData(), s.worldSeed(), short, int32(position[0]>>4), int32(position[2]>>4), int32(d.minY), int32(d.height), int32(d.seaLevel), baseHeight, source)
+	plan, err := worldgen.PlanCommandStructure(s.jigsawRuntimeData(), seed, short, int32(position[0]>>4), int32(position[2]>>4), int32(d.minY), int32(d.height), int32(d.seaLevel), baseHeight, source)
 	if err != nil || plan == nil {
 		return componentReply(commandError("commands.place.structure.failed"))
 	}
@@ -90,7 +98,12 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 			chunks[[2]int32{cx, cz}] = chunk
 		}
 	}
-	writes, entities, blockEntities := plan.Place(chunks, worldgen.NewLegacy(int64(s.rng.next())))
+	var retained worldgen.CommandWGHeightmaps
+	var identities map[[2]int]*world.BaseChunk
+	if source.NormalOverworld {
+		retained, identities = prepareCommandWG(d, bounds)
+	}
+	writes, entities, blockEntities := plan.Place(chunks, worldgen.NewLegacy(int64(s.rng.next())), retained)
 	for _, write := range writes {
 		p := write.Position
 		s.setSilentBlock(d, world.Pos{X: int(p[0]), Y: int(p[1]), Z: int(p[2])}, write.State)
@@ -104,6 +117,9 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 		} else {
 			s.spawnGenEntities(d, []worldgen.GenEntity{entity})
 		}
+	}
+	if source.NormalOverworld {
+		commitCommandWG(d, retained, identities)
 	}
 	response := opsEchoReply(translatable("commands.place.structure.success", nestedCompound{key: "", value: name}, nestedCompound{key: "", value: int32(position[0])}, nestedCompound{key: "", value: int32(position[1])}, nestedCompound{key: "", value: int32(position[2])}))
 	response.result, response.hasResult = 1, true

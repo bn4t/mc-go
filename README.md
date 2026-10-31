@@ -478,6 +478,7 @@ seats use measured dimensions and precision. These are measured subsets; see
 `GOAL.md` for their tests and remaining
 world, gameplay and compatibility gaps.
 
-Ocean ruined portals are also available through `/place structure` on the flat
-overworld. Their coldness follows the original generator biome even after
-`/fillbiome` edits; other generator/dimension contexts remain unsupported.
+Ocean ruined portals are also available through `/place structure` on flat and
+standard normal overworlds. Coldness follows the original generator biome even
+after `/fillbiome` edits. Normal placement uses the actual terrain seed, including
+zero; other generator and dimension contexts remain unsupported.

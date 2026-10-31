@@ -37,7 +37,8 @@ const (
 // flat flag, coordinate scale). Block-entity stores are per-dimension
 // because vanilla keeps them on the level, not the server.
 type dimension struct {
-	worldviewRevision uint64 // serialized finite-volume block commit watermark
+	worldviewRevision uint64                     // serialized finite-volume block commit watermark
+	commandWG         map[[2]int]*commandWGEntry // owner-only, resident-identity-scoped; never saved
 	name              string
 	typeID            int32
 	w                 *world.World

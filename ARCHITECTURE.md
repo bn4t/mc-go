@@ -1518,7 +1518,7 @@ Common native item persistence now writes modeled explosions and rockets, includ
 Common native item persistence writes and recognizes the existing complete Ominous banner aggregate. Its canonical four components preserve the eight ordered layers. Full recognition clears duplicate generic patterns; incomplete aggregates keep their supported generic representation. Arbitrary custom metadata preservation remains incomplete.
 
 
-Explicit /place structure supports swamp huts, desert pyramids, jungle temples, igloos, ocean/beached shipwrecks, cold/warm ocean ruins, the flat-safe jungle/swamp/desert ruined portals and nether fortresses. It validates the command source position and covered chunk readiness, builds an unregistered plan over detached live blocks, applies ordered writes, installs generated block entities and admits persistent residents. The planner receives the level generator's sea level and flat top height, and each chunk's postProcess and region stream come from the level random source, as PlaceCommand does; the jungle temple's moss selector, the pyramid's cellar/roof and the beached shipwreck's sink therefore vary per placement. Command chunk snapshots are built with NewProtoChunk and filled through ProtoChunk.Set so WORLD_SURFACE_WG and OCEAN_FLOOR_WG track live blocks below y=0 as well; template pieces such as the igloo and shipwreck sample them while placing. Natural structure caches remain untouched. Command cat finalization observes registered hut context and moon phase separately from natural hut generation. Other structures and broader coordinate/dimension semantics remain incomplete.
+Explicit /place structure supports swamp huts, desert pyramids, jungle temples, igloos, ocean/beached shipwrecks, cold/warm ocean ruins, the flat-safe jungle/swamp/desert ruined portals, flat/standard-normal overworld ocean portals and nether fortresses. It validates the command source position and covered chunk readiness, builds an unregistered plan over detached live blocks, applies ordered writes, installs generated block entities and admits persistent residents. The planner receives the level generator's sea level and flat top height, and each chunk's postProcess and region stream come from the level random source, as PlaceCommand does; the jungle temple's moss selector, the pyramid's cellar/roof and the beached shipwreck's sink therefore vary per placement. Command chunk snapshots are built with NewProtoChunk and filled through ProtoChunk.Set so WORLD_SURFACE_WG and OCEAN_FLOOR_WG track live blocks below y=0 as well; template pieces such as the igloo and shipwreck sample them while placing. Natural structure caches remain untouched. Command cat finalization observes registered hut context and moon phase separately from natural hut generation. Other structures and broader coordinate/dimension semantics remain incomplete.
 
 Fill commands deliver the actual changed count to result callbacks, zero for
 runtime failure, and no numeric completion for syntax rejection. Endpoint FULL
@@ -1590,11 +1590,12 @@ and swell direction have separate metadata accessors; unchanged default flags
 are omitted. This verifies ignition input and visibility, not complete fuse,
 explosion, charged-creeper or arbitrary item-component behavior.
 
-Explicit ocean ruined-portal commands support the flat overworld and use its
-original generator biome for coldness, independently of live /fillbiome edits.
-The command source carries original block strata and the flat biome explicitly.
-Noise-generator/non-overworld ocean commands and remaining portal variants stay
-unsupported; exact random spread counts remain outside the pin.
+Explicit ocean ruined-portal commands support flat and standard normal overworlds
+and use original generator biomes for coldness, independently of live /fillbiome
+edits. Flat sources carry original strata and a constant biome. Matching normal
+sources use their actual terrain seed, including zero, and generator context.
+Other generator/dimension variants remain unsupported; exact random spread
+counts remain outside the pin.
 
 Creeper Fuse uses a typed short: absence/wrong types default to30, while zero
 and negative limits expire on the first simulation tick. Numeric coercion
@@ -1681,3 +1682,12 @@ chicken/adult-zombie/player controls pin default, half and double scale. Live
 seats remain separate from direct-vehicle X/Z in serialized Pos. Other class,
 baby, pose and seat policies, nonzero yaw and frozen-vehicle ticking remain
 partial. The ordinary boat saved/live-position regression remains pinned.
+
+Normal ocean-portal commands lazily sample FULL-chunk worldgen heightmaps after
+prior ordered placement writes. Samples survive later commands, block edits and
+saves on the same resident BaseChunk; weak identity keys allow replacement and
+cold load to discard them. Cache metadata is never serialized or used to
+materialize missing chunks. Natural ProtoChunk heightmap stages remain separate.
+Native physical unloading and interactions with other command map consumers
+remain unverified while the backend retains its resident columns. Other commands'
+configured-zero seed fallback is unchanged by this scoped normal-ocean path.
