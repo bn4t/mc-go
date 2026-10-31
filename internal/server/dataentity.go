@@ -2032,6 +2032,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	if name == "area_effect_cloud" {
 		known["DurationOnUse"] = true
 	}
+	if name == "creeper" {
+		known["Fuse"] = true
+	}
 	extras := map[string]any{}
 	for k, v := range save {
 		if !known[k] {

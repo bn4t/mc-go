@@ -1635,3 +1635,7 @@ while leaving observed blocks, health, motion and end crystals intact. Charged
 creepers multiply the signed value. Canonical live radius edits consume the raw
 field instead of allowing ExtraNBT to override it. Positive-radius sampling and
 damage algorithms are unchanged; complete explosion/restart parity remains open.
+
+Live creeper Fuse edits expose their canonical signed-short value, including
+native defaults and numeric wrapping. Unknown-field carry-through preserves
+unrelated tags without overriding the modeled fuse or resetting elapsed time.
