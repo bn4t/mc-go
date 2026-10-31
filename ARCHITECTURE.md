@@ -1600,3 +1600,10 @@ and negative limits expire on the first simulation tick. Numeric coercion
 preserves short wrapping. A live limit change or repeated ignition preserves
 elapsed countdown; NoAI does not pause an ignited fuse. Full creeper restart and
 explosion damage/geometry remain separate.
+
+Burning survival players melt contacted powder snow, including measured two/four
+cell boundary overlaps, wherever normal world interaction permits destruction.
+Contact extinguishes independently of mob_griefing and preserves existing freeze
+and thaw behavior. Protection can deny melting while contact still extinguishes.
+Exact negative Fire counter normalization, other modes and swept/mixed-block
+paths remain separate; the verified extinguish condition is nonpositive Fire.

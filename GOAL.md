@@ -257,8 +257,10 @@ Mojang server over the wire.
       poll, with strict void/air controls. Exhaustion spends at most one quantum
       per player frame, only above four, and clamps fractional saturation to zero;
       player powder exposure/thaw, wearable immunity and freeze damage rules have
-      actual-frame controls. Exact large-budget wire-frame injection and
-      burning/melting or swept-path freezing remain separate gaps.
+      actual-frame controls. Burning survival players melt permitted powder snow,
+      including measured two/four-cell overlap, and extinguish on contact.
+      Exact negative Fire counters, large-budget wire-frame injection and
+      swept-path freezing remain separate gaps.
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -19926,3 +19928,11 @@ Final exact artifact native/Go15-case oracle PASS38.29s, all30 named legs,
 exit0. Patch SHA256 `615bb74d968acaaa57b2e3518a2d4c9ffdad7d8e016ab1a8f787f1aafa3a5ef8`;
 official26.2 runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`,
 Temurin25.0.5+8 and Go1.27.3.
+
+## Slice — burning survival player powder melt (2026-10-31)
+
+- **Measured:** Real Java26.2 survival player contact with powder snow while positively burning melts the contacted snow and extinguishes the burn even with mob_griefing=false. Nonburning snow remains and freezes; air retains the preceding burn. Independent decimal-position measurements at x9.000/z2.500 and x9.000/z3.000 show all two/four contacted powder cells melt, each separately asserted air, while an uncontacted neighboring snow sentinel remains. After the melt and a six-admitted-player-frame window, TicksFrozen is canonically absent/zero. World age remains unchanged under freeze; the live survival player has damaged but positive health. Baseline Go fails the melt/extinguish outcome. Factual bytecode observation (JDK25.0.5+8, official26.2 runtime SHA256183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8) separately identifies melt before extinguish and the normal actor interaction gate; ServerPlayer delegates to world interaction permission, without a new game-mode restriction.
+- **Implemented:** Player powder contact melts permitted contacted snow before extinguishing the existing positive burn; player melting bypasses mob_griefing. Preserve existing freeze contact and thaw cadence. Reuse the existing spawn-protection/world-border mayInteract gate; denying destruction still allows ordinary freeze/extinguish contact.
+- **Pinned:** Expanded strict TestPlayerBurningPowderMeltParity native+Go PASS22.65s (native6.94s, Go7.14s) with exact per-cell two/four overlap assertions and post-window Pos receipts, after before native-PASS/Go-FAIL baseline. New melt/nonburn/denied-interaction and existing frame/wearable/cached-bounds units PASS; build and default vet PASS. Existing TestFrozenPlayerPowderEventCadenceParity PASS81.35s (native28.12s/Go30.32s) and TestPlayerFluidParity PASS113.06s (native44.11s/Go47.67s), aggregate exit0, preserving original outcomes.
+
+Limits: This pin covers a real survival player at stationary teleported endpoints, including ordinary two/four-cell body overlap. Multi-contact snapshots observed matching Health92/88 and absent TicksFrozen after the admitted-frame window. Extinguish means nonpositive Fire: native was-20 and Go0 in those snapshots; exact negative-fire-baseline parity remains open. Exact first-frame freeze order, swept movement paths, mixed adjacent lava/powder cells and other game modes are not newly established. The abandoned creative setup did not establish positive burn from stationary lava frames and provides no creative melt claim; existing creative fluid/movement checks remain intact. Interaction denial is unit/factual coverage of an inherited gate, not a new protected-player native wire pin. No copied native source/disassembly is part of the patch.

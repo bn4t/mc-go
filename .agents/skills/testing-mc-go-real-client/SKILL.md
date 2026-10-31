@@ -496,3 +496,12 @@ A mounted entity's `/data get ... Pos` is its serialized representation: direct
 vehicle X/Z with rider Y. Measure live position independently, for example with
 an unmounted marker summoned at the rider executor. Keep actual packet movement,
 live seats, command save views and player disk snapshots as separate checks.
+
+## Block boundary exposure probes
+
+Use explicit decimal teleport coordinates and query actual Pos when testing a
+body across block boundaries; integer Vec3 tokens can add centering. Check every
+contacted cell and an untouched neighbor independently. Measure multiple contacts
+before assuming the first contact's extinguish effect changes later callbacks.
+Keep nonpositive Fire, its exact inactive counter and freeze timing as separate
+claims; full-state diagnostics need a positive receipt and sufficient packet size.

@@ -37,17 +37,28 @@ func (s *Server) playerPowderInside(sess *Session, d *dimension, x, y, z float64
 	}
 	halfWidth, height := s.playerCollisionDims(&sess.playerRecord)
 	inside := false
+	// Native PowderSnowBlock contact melts before extinguishing. Players
+	// bypass mob_griefing; ordinary world interaction permission still applies.
+	burning := sess.fireTicks > 0
 	// Native inside-block contact deflates by the float1e-5 value.
 	const inset = float64(float32(1e-5))
 	for bx := int(math.Floor(x - halfWidth + inset)); bx <= int(math.Floor(x+halfWidth-inset)); bx++ {
 		for by := int(math.Floor(y + inset)); by <= int(math.Floor(y+height-inset)); by++ {
 			for bz := int(math.Floor(z - halfWidth + inset)); bz <= int(math.Floor(z+halfWidth-inset)); bz++ {
-				name, _ := world.StateOwner(d.w.GetBlock(world.Pos{X: bx, Y: by, Z: bz}))
+				pos := world.Pos{X: bx, Y: by, Z: bz}
+				name, _ := world.StateOwner(d.w.GetBlock(pos))
 				if strings.TrimPrefix(name, "minecraft:") == "powder_snow" {
 					inside = true
+					if burning && s.mayInteract(sess, d, pos) {
+						s.setNaturalBlock(d, pos, world.Air)
+					}
 				}
 			}
 		}
+	}
+	if inside && burning {
+		sess.fireTicks = 0
+		s.broadcastSharedFlags(sess)
 	}
 	pe.IsInPowderSnow = inside
 	if inside && playerCanFreeze(sess) {
