@@ -11,11 +11,15 @@ func TestPlayerPowderFramesAndWearables(t *testing.T) {
 	s.simulationAction(func() {
 		record := s.entities.Spawn(&Entity{Type: mustEntityType("player"), Dim: dimOverworld, X: .5, Y: .5, Z: .5})
 		p.entityID.Store(record.ID)
+		p.setPos(.5, 0, .5, 0, 0, false)
 		pe, ok := s.entities.GetPtr(p.entityID.Load())
 		if !ok {
 			t.Fatal("player record absent")
 		}
 		s.world.SetBlock(world.Pos{}, world.BlockStateMust("powder_snow"))
+		// The retained two-contact fixture is an unsupported column: falling
+		// travel enters the lower powder row, as in the native legacy pin.
+		s.world.SetBlock(world.Pos{Y: -1}, world.BlockStateMust("powder_snow"))
 		for frame := 0; frame < 5; frame++ {
 			s.playerInsideBlocks(p)
 			s.playerPowderTick(p, pe)

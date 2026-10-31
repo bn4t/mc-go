@@ -37,7 +37,8 @@ unpack latent loot using the owning container's biome. Execute biome conditions
 use the zoomed biome at their bound dimension and block position. Measured chest/barrel
 hopper automation does the same without granting later menu loot credit. Player powder-snow melt,
 inactive fire counters and stationary fire/soul-fire warmup have native
-comparisons; mixed hazards and swept paths remain partial. Creeper ignition, signed fuse/radius values and live fuse
+comparisons. Fixed-position powder freezing distinguishes supported contact from
+travel into a new powder row; mixed hazards and swept paths remain partial. Creeper ignition, signed fuse/radius values and live fuse
 edits preserve measured packet and countdown behavior. Creeper restart checks
 cover saved flags and transient swell, including native readback of Go entity
 exports. Nonplayer scale changes

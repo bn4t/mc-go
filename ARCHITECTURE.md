@@ -1705,3 +1705,10 @@ replaceable. Elapsed swell resets on cold construction and survives live edits.
 Both flags serialize explicit bytes. Native readback covers actual Go entity-only
 exports; the separately reproduced generic /tag serialization failure prevents
 a broader whole-world save claim for that command sequence.
+
+Fixed-position powder freezing adds one contact step plus newly intersected
+vertical powder rows. Cached bounds and existing collision clipping distinguish
+support, fractional placement, small gaps, zero gravity and levitation. The
+reconstruction models the measured standing survival envelope while the reported
+position is restored; full movement physics, retained vertical motion, impulses,
+flight, swept client paths and immediate packet transients remain separate.

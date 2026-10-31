@@ -435,3 +435,9 @@ explicit fixture-input recipe. An opt-in fixture test skipped by default is
 not a proof receipt. Bind restart packets to saved UUIDs, preserve pairing
 through readiness, and distinguish entity-only export from whole-world saves.
 Reproduce the exact pre-save mutation before attributing an encoding failure.
+
+For exposure-rate geometry, retain source-cell receipts and full-double position
+checks: rounded coordinates can erase a small support gap. Preserve old numeric
+expectations when correcting a fixture’s geometry only after independent native
+measurement establishes that geometry. Separate settled post-movement windows
+from the immediate packet-to-frame transient and full movement simulation.

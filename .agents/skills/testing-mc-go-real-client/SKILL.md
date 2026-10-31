@@ -532,3 +532,9 @@ of startup world age. Keep native world bytes ignored and record an explicit
 input→Go export→native readback recipe with hashes; a default fixture skip is
 not verification. Reproduce the same pre-save mutations when isolating a writer
 failure, and keep entity-only and whole-world save claims separate.
+
+Powder exposure rates depend on contact geometry and admitted frames. Check
+every source cell, exact double pose and uncapped freeze/play_time snapshots;
+rounded positions can conceal tiny support gaps. Test supported and unsupported
+columns, lower-air and new-row controls separately. A single accepted movement
+followed by settled windows does not establish its immediate transient dose.
