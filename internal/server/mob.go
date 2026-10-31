@@ -8978,9 +8978,12 @@ func (s *Server) spawnLingeringCloud(e *Entity) {
 	if !ok {
 		return
 	}
-	effects := make(map[int32]mobEffectInst, len(e.Effects))
+	// The exploding creeper copies effects before its living-effect tick.
+	// Snapshot remaining durations rather than carrying absolute expiry clocks
+	// into the cloud: recipients at every cloud age receive the same dose.
+	items := make([]any, 0, len(e.Effects))
 	for id, inst := range e.Effects {
-		effects[id] = inst
+		items = append(items, mobEffectNBT(id, inst, s.gameTime()-1))
 	}
 	cloud := s.entities.Spawn(&Entity{
 		Type:               cloudType,
@@ -8994,11 +8997,11 @@ func (s *Server) spawnLingeringCloud(e *Entity) {
 		CloudRadiusPerTick: -2.5 / 300,
 		CloudRadiusOnUse:   -0.5,
 		CloudVictims:       map[int32]int32{},
-		Effects:            effects,
 		// explodeCreeper's cloud.setOwner(this) — the creeper is a
 		// LivingEntity, so it lands as the dose's indirectMagic cause.
 		CloudOwnerID: e.ID,
 	})
+	setCloudPotionContents(cloud, map[string]any{"custom_effects": nbt.List{Elem: nbt.TagCompound, Items: items}}, 0.25, s.gameTime())
 	s.broadcastEntitySpawn(nil, *cloud)
 	if meta := encodeCloudMeta(cloud); len(meta) > 0 {
 		s.broadcastEntityMetadata(cloud.ID, meta)

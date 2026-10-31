@@ -389,8 +389,8 @@ type Entity struct {
 	// RadiusOnUse per victim dosed; CloudVictims is the
 	// reapplication-delay (20t) cooldown keyed by entity id. The
 	// copied potion contents ride in Effects.
-	// CloudPotionContents names immutable bottled contents; cloud age never
-	// reduces their per-dose duration. Creeper effects keep their expiry clock.
+	// CloudPotionContents names immutable copied or bottled contents; cloud age
+	// never reduces their per-dose duration.
 	CloudPotionContents string
 	CloudWait           int32
 	CloudDuration       int32

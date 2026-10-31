@@ -1721,6 +1721,15 @@ controls and the actual four-creeper native fixture; a native public storage
 decoder accepts the Go output. This establishes tag writer compatibility, not
 additional native physical-world or creeper lifecycle behavior.
 
+Creeper explosion clouds snapshot active effect contents at the exploding
+entity's pre-living-effect phase and use the existing immutable potion-content
+cloud dose path with scale 0.25. Absolute source expiries are not carried into
+recipient duration calculations: both early and delayed recipients receive the
+same copied dose, including infinite duration. Cloud radius, wait, lifetime and
+owner ID use their existing paths. The pin covers finite speed and infinite
+speed, not complete owner damage attribution, hidden-effect chains or effects
+expiring exactly on the exploding tick.
+
 Fixed-position powder freezing adds one contact step plus newly intersected
 vertical powder rows. Cached bounds and existing collision clipping distinguish
 support, fractional placement, small gaps, zero gravity and levitation. The

@@ -495,3 +495,11 @@ NPC `/tag` mutations retain canonical string-list NBT through world save and
 cold reload, including duplicate rejection and removal of the last tag. Native
 storage decoding accepts measured Go output; broader lifecycle parity remains
 scoped to the tests recorded in `GOAL.md`.
+
+
+Creeper effect clouds retain a fixed copy of the source's remaining effect
+duration for every recipient, scaled to one quarter; infinite source effects
+remain infinite. Native checks bind actual source/cloud IDs, early and delayed
+cow doses, an outside no-dose control and eventual cloud retirement. This covers
+copied dose lifetime; source effects expiring on the exploding tick, complete
+cloud damage attribution and broader explosion behavior remain separate.
