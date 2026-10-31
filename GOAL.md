@@ -20161,3 +20161,28 @@ Final three-leg native comparison PASS40.87s, all nine explicit-input units PASS
 - **Pinned:** exact two-file slice TestExecuteBiomeEditedQuartBoundaryParity PASS19.15s(native7.18/Go2.05), TestExecuteBiomeTerrainLookupParity PASS63.84s(native16.24/Go31.27), final exit0. Each terrain point requires exactly one nonvoid real registry biome plus diversity, preventing empty/constant equality. Focused source-frame/biome/hopper/cargo units, tagged build and default vet0. Scope is valid preloaded explicit-ID queries/fresh worlds, not tags/unloaded errors/parser expansion or every biome consumer. Frozen source/evidence/provenance in work/execute-biome-lookup-manifest-v1.md and .sha256.
 
 Patch SHA-256 `8293906a4d5ba59e34f1ed2c885d3fbbaafd59d818b3ff68e59d24623279cf1a`, base `53f7229f3fe6b8996f3ebb01d1125f4ca14bb9cc`. Go1.27.3, Temurin25.0.5+8 and official26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+
+
+## Slice — combined fifth-batch verification and portal discrepancy (2026-10-31)
+
+- **Measured:** Immutable `cee3c4a` combines scaled attachments, normal-ocean
+  portals, wolf Health loading, creeper saved flags and biome-query lookup.
+  The combined native comparison exposes a seed-zero portal discrepancy missed
+  by the earlier isolated run: Go lacks expected obsidian at (-7,61,3) and
+  fails the exact count10 assertion. Native seed zero and both seed-one legs
+  pass. The original geometry assertions and failed log are retained.
+- **Implemented:** No corrective change is claimed here. Publication is held
+  while the structure lane traces the failure. Other implementation work remains
+  in private exports outside the verified tree.
+- **Pinned:** Build, default vet, both generated-fact checks, tagged compilation
+  and all17 default test packages pass, complete driver exit0. Internal server
+  456.978s, default blackbox256.224s, world0.527s, worldgen36.433s and public
+  server19.191s. The exact combined server binary explicitly reads the native
+  fixture and exports fresh creeper records (PASS0.04s); a default skip is not
+  used as evidence. Combined native process exit1: creeper restart/export99.87s,
+  edited biome41.18s, terrain biome83.52s, scaled attachments34.87s and wolf
+  frozen loading31.88s pass; normal ocean portals fail149.25s as described
+  above. Complete membership, hashes, results and logs are preserved in
+  `work/verified-cee3c4a-evidence/`, including the original failed native log.
+  This establishes the full default gate and five targeted native comparisons,
+  not a passing combined native gate or complete parity.
