@@ -77,8 +77,10 @@ func TestSharedAvatarExclusionKeepsJavaAndNonlivingInteractions(t *testing.T) {
 				if java != nil {
 					// Java contact and freezing run on the admitted player frame;
 					// the global pass still handles nonliving contact and tripwire.
+					// Feet at10.4 meet only the y11 snow row; native creative and
+					// survival contact both add one per frame for this geometry.
 					s.playerFluidTickStep()
-					wantFrozen = 2
+					wantFrozen = 1
 				}
 				s.portalCooldownStep()
 				powered, _ := world.StateProperty(s.world.GetBlock(wirePos), "powered")

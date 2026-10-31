@@ -47,6 +47,7 @@ func TestPlayerPowderPlacementParity(t *testing.T) {
 		shape{"floating_no_lower", 8.5, -49, 2.5, [][3]int{{8, -49, 2}, {8, -48, 2}}, false},
 		shape{"levitation_top_edge", 8.5, -49.801, 2.5, [][3]int{{8, -50, 2}, {8, -49, 2}, {8, -48, 2}}, false},
 	)
+	shapes = append(shapes, shape{"upper_only_tripwire", .5, 10.4, .5, [][3]int{{0, 11, 0}}, false}, shape{"upper_only_tripwire_creative", .5, 10.4, .5, [][3]int{{0, 11, 0}}, false})
 	fields := []string{"Frozen", "Tick", "Health", "X", "Y", "Z", "World", "Ground", "Gravity", "MotionY"}
 	snapBody := "scoreboard players set Frozen PPState 0\nexecute store result score Frozen PPState run data get entity @s TicksFrozen\nscoreboard players operation Tick PPState = @s BBPlayerTick\nexecute store result score Health PPState run data get entity @s Health 1000\nexecute store result score X PPState run data get entity @s Pos[0] 1000000\nexecute store result score Y PPState run data get entity @s Pos[1] 1000000\nexecute store result score Z PPState run data get entity @s Pos[2] 1000000\nexecute store result score World PPState run time query gametime\nexecute store result score Ground PPState run data get entity @s OnGround\nexecute store result score Gravity PPState run attribute @s gravity get 1000000\nexecute store result score MotionY PPState run data get entity @s Motion[1] 1000000\nsay PPATOM\n"
 	dir := t.TempDir()
@@ -61,10 +62,16 @@ func TestPlayerPowderPlacementParity(t *testing.T) {
 	files["ops.json"] = opsJSONFor(names...)
 	for _, s := range shapes {
 		body := ""
+		if strings.HasPrefix(s.name, "upper_only_tripwire") {
+			body = "setblock 0 10 0 tripwire\n"
+		}
 		for _, p := range s.cells {
 			body += fmt.Sprintf("setblock %d %d %d powder_snow\n", p[0], p[1], p[2])
 		}
 		conditions := "execute"
+		if strings.HasPrefix(s.name, "upper_only_tripwire") {
+			conditions += " if block 0 10 0 tripwire"
+		}
 		for _, p := range s.cells {
 			conditions += fmt.Sprintf(" if block %d %d %d powder_snow", p[0], p[1], p[2])
 		}
@@ -195,6 +202,9 @@ func TestPlayerPowderPlacementParity(t *testing.T) {
 								t.Fatal("powder arena absent")
 							}
 						}
+						if strings.HasPrefix(shape.name, "upper_only_tripwire") {
+							sendCommand(t, pw, "fill -1 9 -1 2 14 2 air")
+						}
 						for _, cmd := range []string{"fill 7 -50 1 10 -47 4 air", "fill 32 -60 32 35 -55 35 air", "fill 0 -51 0 14 -51 4 stone", "fill 32 -61 32 35 -61 35 stone", "attribute @s max_health base set 100", "effect give @s instant_health 1 10 true"} {
 							sendCommand(t, pw, cmd)
 						}
@@ -206,8 +216,13 @@ func TestPlayerPowderPlacementParity(t *testing.T) {
 							sendCommand(t, pw, "effect give @s levitation 10 0 true")
 							expect(`execute if data entity @s {active_effects:[{id:"minecraft:levitation"}]}`)
 						}
+						wantMode := 0
+						if strings.HasSuffix(shape.name, "_creative") {
+							sendCommand(t, pw, "gamemode creative @s")
+							wantMode = 1
+						}
 						advance(3)
-						expect(`execute if data entity @s {Health:100.0f,playerGameType:0,Fire:-20s} unless data entity @s {active_effects:[{id:"minecraft:instant_health"}]}`)
+						expect(fmt.Sprintf(`execute if data entity @s {Health:100.0f,playerGameType:%d,Fire:-20s} unless data entity @s {active_effects:[{id:"minecraft:instant_health"}]}`, wantMode))
 						if mode == 1 {
 							sendCommand(t, pw, "tick unfreeze")
 						}
