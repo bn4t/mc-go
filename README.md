@@ -33,7 +33,8 @@ remains partial. Wolf checks distinguish initial loaded health, the wild maximum
 reset and later damage/frame clamps, including valid Owner removal. Recent
 persistence checks retain supported living corpses and
 resume their saved death countdown without replaying drops. Container menus and item commands now
-unpack latent loot using the owning container's biome. Measured chest/barrel
+unpack latent loot using the owning container's biome. Execute biome conditions
+use the zoomed biome at their bound dimension and block position. Measured chest/barrel
 hopper automation does the same without granting later menu loot credit. Player powder-snow melt,
 inactive fire counters and stationary fire/soul-fire warmup have native
 comparisons; mixed hazards and swept paths remain partial. Creeper ignition, signed fuse/radius values and live fuse

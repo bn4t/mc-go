@@ -1675,8 +1675,11 @@ extraction recipients preserve unopened loot; later menu access does not award
 loot credit already consumed by automation. Existing one-item movement and
 cooldowns remain. Native checks use explicit enabled states and default stack
 caps; redstone transitions, double-chest automation, other container families
-and automation restart behavior remain separate. Command biome zoom and hopper
-NBT through setblock have independent recorded gaps, outside this consumer fix.
+and automation restart behavior remain separate. Hopper NBT through setblock has an independent recorded gap, outside this
+consumer fix. Execute biome conditions now use the existing zoomed lookup for
+the bound dimension and parsed position, including edited quart boundaries and
+generated terrain. Local caret block coordinates, biome tags and unloaded-query
+errors remain separate.
 
 Living attachment scale follows consumed dimensions independently of raw
 attribute values. Passenger vectors and vertical rider points retain double

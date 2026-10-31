@@ -329,7 +329,8 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 		}
 		return 2, cond, 0, false, nil
 	case "biome":
-		// if biome <x> <y> <z> <id> — quart overrides via biomeAt.
+		// if biome <x> <y> <z> <id> — Level.getBiome resolves the
+		// zoomed biome at this source dimension and block position.
 		if len(args) < 5 {
 			r := textReply("Usage: /execute if biome <x> <y> <z> <biome>")
 			return 0, false, 0, false, &r
@@ -340,7 +341,7 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 				name = "minecraft:" + name
 			}
 			if x, y, z, berr := blockPosArgs(args, bx, by, bz, tokBase); berr == nil {
-				cond = s.biomeAt(ctx.dim, world.Pos{X: x, Y: y, Z: z}) == name
+				cond = s.spawnBiomeAt(ctx.dim, world.Pos{X: x, Y: y, Z: z}) == name
 			}
 		}
 		return 5, cond, 0, false, nil
