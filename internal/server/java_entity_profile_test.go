@@ -652,6 +652,8 @@ func TestJavaEntityCreeperMetadataMatchesSchema(t *testing.T) {
 	}
 	e := &Entity{Type: creeper, Living: true, AirSupply: 300, Health: 20, SwellDir: 1, Powered: true}
 	check("spawn", encodeLivingMetadata(e, nil))
+	// Establish the first post-pair dirty replay before measuring a reset.
+	check("first dirty", encodeLivingMetadataDirty(e, nil))
 	e.SwellDir = -1
 	check("dirty", encodeLivingMetadataDirty(e, nil))
 }

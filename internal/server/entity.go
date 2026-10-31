@@ -1241,6 +1241,11 @@ func (m *Manager) Spawn(e *Entity) *Entity {
 			e.OrbCount = 1
 		}
 	}
+	// Creeper's unswollen synced direction defaults to -1. Preserve an
+	// explicitly supplied positive direction on admission.
+	if name, _ := EntityTypeName(e.Type); name == "creeper" && e.SwellDir == 0 {
+		e.SwellDir = -1
+	}
 	// Entity constructs with the virtual getMaxAirSupply value.
 	airName, _ := EntityTypeName(e.Type)
 	e.AirSupply = mobMaxAirSupply(airName)

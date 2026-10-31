@@ -296,6 +296,9 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if s.leashUnleashOrAttach(sess, id, hand) {
 		return
 	}
+	if s.creeperIgniterInteract(sess, id, hand) {
+		return
+	}
 	s.bucketFish(sess, id, hand)
 	if s.milkInteract(sess, id, hand) {
 		return

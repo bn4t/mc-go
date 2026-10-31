@@ -2934,6 +2934,7 @@ type livingMeta struct {
 	villFinal  bool
 	freezeConv bool
 	powered    bool
+	ignited    bool
 	swell      int32
 	mooVar     int32
 	interested bool
@@ -2995,6 +2996,7 @@ func snapLivingMeta(e *Entity) livingMeta {
 		villFinal:  e.VillagerFinalized,
 		freezeConv: e.FreezeConv,
 		powered:    e.Powered,
+		ignited:    e.Ignited,
 		swell:      e.SwellDir,
 		interested: e.Interested,
 		collar:     collarColorValue(e),
@@ -3124,7 +3126,7 @@ func (e *Entity) ensureMetaInit() {
 		return
 	}
 	e.metaInited = true
-	e.metaSent = livingMeta{air: 300, health: 1.0, pumpkin: true, villType: 2, villLevel: 1}
+	e.metaSent = livingMeta{air: 300, health: 1.0, swell: -1, pumpkin: true, villType: 2, villLevel: 1}
 	e.metaSent.villProf = e.VillagerProfDefault
 	if n, _ := EntityTypeName(e.Type); n == "villager" {
 		e.metaSent.villProf = 0
@@ -3626,6 +3628,11 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case name == "creeper":
+			if e.Ignited != last.ignited {
+				b.Byte(18)
+				b.Byte(8)
+				b.Bool(e.Ignited)
+			}
 			if e.Powered != last.powered {
 				b.Byte(17)
 				b.Byte(8)
@@ -4232,6 +4239,11 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 		case "creeper":
+			if e.Ignited {
+				b.Byte(18)
+				b.Byte(8)
+				b.Bool(true)
+			}
 			// swell_dir (16, int — non-default only while the fuse
 			// runs up) and powered (17, bool).
 			if e.Powered {

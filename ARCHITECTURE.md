@@ -1575,3 +1575,9 @@ Overworld flat command portal corner searches use the generator's original
 block strata, including air and fluids. Natural generation retains its noise
 columns. Other portal variants, custom flat heightmap semantics and
 non-overworld command-generator columns remain partial.
+
+Creepers accept flint-and-steel or fire charges from either hand, using the
+shared dimension/reach gate, survival costs and creative exemptions. Ignition
+and swell direction have separate metadata accessors; unchanged default flags
+are omitted. This verifies ignition input and visibility, not complete fuse,
+explosion, charged-creeper or arbitrary item-component behavior.
