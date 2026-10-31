@@ -27,6 +27,16 @@ The server is under active parity development. The detailed supported cases
 and remaining work are tracked in [GOAL.md](GOAL.md); a checked scenario does
 not establish complete vanilla behavior for its entire subsystem.
 
+Recent persistence checks retain supported living corpses and resume their saved
+death countdown without replaying drops. Container menus and item commands now
+unpack latent loot using the owning container's biome. Player powder-snow melt
+and inactive fire counters have native comparisons; initial fire-block warmup
+remains separate work. Creeper ignition, signed fuse/radius values and live fuse
+edits preserve measured packet and countdown behavior. Nonplayer scale changes
+refresh physical bounds on living frames, with measured collision adjustment and
+movement packets; mounted attachment scaling and broader collision contexts
+remain partial. Each claim is scoped to the cases recorded in GOAL.md.
+
 Recent measured coverage includes command-block execution and editors,
 command-minecart activator rails, structure-block save/load and redstone actions
 with native templates, jigsaw editor/generation, test-block editors and

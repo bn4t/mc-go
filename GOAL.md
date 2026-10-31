@@ -20022,3 +20022,30 @@ Official26.2 jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b
 Limits: Mounted attachment scaling, rider offsets, pose/baby/size refresh and complete collision geometry remain separate. The solver uses the current static empty-context shape adapter; dynamic/context-sensitive shapes and world-border refinements are not established by these controls. Attribute network-clock parity beyond the observed by-tick1 window is not claimed. Existing repeated passenger-seat tracking flushes remain outside this scale callback.
 
 Concrete follow-up: valid raw living summons omit `attributes:[{id:"minecraft:scale",base:2d}]` in the manual living summon reader. Native effective scale is2 and Go1; retained strict-v2.go/resize-before-v2.log and raw-attributes-followup.md document the exact red input/reader. This is a production hydration gap, not unsupported test setup; its fix is assigned separately.
+
+
+## Slice — combined persistence, loot, fire, creeper and resize verification (2026-10-31)
+
+- **Measured:** Per-slice native evidence establishes corpse save/reload countdowns,
+  block-container loot origins, inactive player fire, signed creeper limits, live
+  fuse canonicalization, position quantization and living scale refresh. Remaining
+  raw summon hydration, fire warmup, mounted attachments and normal-world portal
+  differences are tracked separately; this batch does not claim full parity.
+- **Implemented:** Immutable `9659a39` combines the seven reviewed implementation
+  slices after published `51caad9`, with updated architecture, agent guidance and
+  the real-client testing skill. README now summarizes their scoped capabilities.
+- **Pinned:** Build, default vet, both generated-fact checks, tagged compilation
+  and all 17 default test packages pass, with count1 and localhost networking.
+  Package binaries were compiled under a build slot, then executed from their
+  package directories with two workers. Internal server301.357s, default
+  blackbox143.797s, world0.419s, worldgen19.198s and public server12.079s;
+  the complete driver exits0. The same immutable source and tagged binary pass
+  all five combined native/Go comparisons: live fuse22.92s, radius28.46s,
+  position quantizer14.71s, resize packets23.64s and resize lifecycle43.17s,
+  aggregate exit0. Per-package membership, executable hashes, results and raw
+  logs are retained in `work/verified-9659a39-evidence/`, with aggregate logs
+  `work/final-9659a39-check.log` and `work/final-9659a39-oracle.log`.
+  These are targeted native comparisons alongside the full default suite,
+  not a full native-suite sweep. Toolchain: Go1.27.3, Temurin25.0.5+8,
+  GOMAXPROCS=2 after activation; official unpacked26.2 runtime SHA256
+  `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
