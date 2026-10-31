@@ -1573,8 +1573,8 @@ next frame.
 Cargo loot evaluates biome-only entry location conditions at the vehicle
 position in its dimension. This keeps non-sulfur generated mineshaft loot on
 the exact seeded evaluator. Missing biome context, compound predicates and
-other unsupported shapes retain the approximate fallback; block containers
-still lack this context. Native sulfur and nonsulfur generated-cart bags are now both pinned through
+other unsupported shapes retain the approximate fallback. Chest/generic block
+menus and /item read/write consumers also use their owning block origin. Native sulfur and nonsulfur generated-cart bags are now both pinned through
 actual menus and Go restart, with independent cart and distant actor dimension/biome
 witnesses. Direct disc selection and biome-override persistence remain separate.
 
@@ -1613,3 +1613,11 @@ including linked passengers and dying living parents with live riders. Loading
 restores saved Health/DeathTime without replaying death loot, XP or credit
 callbacks; remaining admitted corpse ticks continue to retirement. Dedicated
 dragon/nonliving paths, player death, animation and unloading remain separate.
+
+Block chest/generic-container slot reads, writes and menu creation unpack armed
+loot before accessing storage, using the owning block position and dimension.
+Each double-chest storage half retains its own origin; changed-slot notifications
+use the existing menu queue, and only opening-player access grants loot credit.
+Chest/barrel sulfur/nonsulfur command/menu cases have native pins. Double-chest
+biome boundaries, hopper-specific latent storage, destruction and block restart
+remain outside the new proof.

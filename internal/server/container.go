@@ -577,12 +577,7 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 	}
 	// RandomizableContainer.unpackLootTable: an armed table fills the
 	// container as its menu opens.
-	if c.lootTable != "" {
-		table, seed := c.lootTable, c.lootSeed
-		c.lootTable, c.lootSeed = "", 0
-		unpackLootInto(c.slots, table, seed)
-		s.firePlayerGeneratesContainerLoot(sess, table)
-	}
+	s.unpackBlockContainerLoot(sess.dimension(), pos, c.slots, &c.lootTable, &c.lootSeed, sess)
 	id := sess.server.nextWindow.Add(1)
 	w := &openWindow{id: id, pos: pos, dim: sess.dimension(), container: c, kind: c.spec.menu}
 	sess.windowMu.Lock()

@@ -175,13 +175,13 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 	if combined {
 		other = s.chestAt(d, second)
 	}
-	for _, storage := range []*chestData{ch, other} {
-		if storage != nil && storage.lootTable != "" {
-			table, seed := storage.lootTable, storage.lootSeed
-			storage.lootTable = ""
-			storage.lootSeed = 0
-			unpackLootInto(storage.slots[:], table, seed)
-			s.firePlayerGeneratesContainerLoot(sess, table)
+	for index, storage := range []*chestData{ch, other} {
+		if storage != nil {
+			origin := first
+			if index == 1 {
+				origin = second
+			}
+			s.unpackBlockContainerLoot(d, origin, storage.slots[:], &storage.lootTable, &storage.lootSeed, sess)
 		}
 	}
 	id := sess.server.nextWindow.Add(1)

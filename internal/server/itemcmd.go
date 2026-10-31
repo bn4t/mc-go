@@ -1726,6 +1726,7 @@ func (s *Server) readItemBlock(d *dimension, pos world.Pos, id int32) (ItemStack
 		}
 		c := s.chestAt(d, pos)
 		d.chests.mu.Lock()
+		s.unpackBlockContainerLoot(d, pos, c.slots[:], &c.lootTable, &c.lootSeed, nil)
 		st := c.slots[id]
 		d.chests.mu.Unlock()
 		return st, reply{}, true
@@ -1754,6 +1755,7 @@ func (s *Server) readItemBlock(d *dimension, pos world.Pos, id int32) (ItemStack
 		}
 		c := s.containerAt(d, pos)
 		d.containers.mu.Lock()
+		s.unpackBlockContainerLoot(d, pos, c.slots, &c.lootTable, &c.lootSeed, nil)
 		st := c.slots[id]
 		d.containers.mu.Unlock()
 		return st, reply{}, true
@@ -1801,6 +1803,7 @@ func (s *Server) writeItemBlock(d *dimension, pos world.Pos, id int32, st ItemSt
 	case isChestBlock(blk):
 		c := s.chestAt(d, pos)
 		d.chests.mu.Lock()
+		s.unpackBlockContainerLoot(d, pos, c.slots[:], &c.lootTable, &c.lootSeed, nil)
 		old = c.slots[id]
 		c.slots[id] = st
 		d.chests.mu.Unlock()
@@ -1823,6 +1826,7 @@ func (s *Server) writeItemBlock(d *dimension, pos world.Pos, id int32, st ItemSt
 	default:
 		c := s.containerAt(d, pos)
 		d.containers.mu.Lock()
+		s.unpackBlockContainerLoot(d, pos, c.slots, &c.lootTable, &c.lootSeed, nil)
 		old = c.slots[id]
 		c.slots[id] = st
 		d.containers.mu.Unlock()
