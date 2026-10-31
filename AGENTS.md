@@ -331,3 +331,9 @@ Resource overrides must follow toolchain activation. This workspace activation
 sets GOMAXPROCS=4, and work/run-oracle.sh sources it again; use
 `work/run-oracle.sh env GOMAXPROCS=2 ...` when requesting a two-thread oracle.
 Record the effective environment rather than assuming an outer export survived.
+
+On this shared four-core workspace, limit new compilations to two build slots
+(`/tmp/mcgo-build-a.lock` and `/tmp/mcgo-build-b.lock`). Hold a slot for build,
+vet or test-binary compilation, then release it before executing tests or waiting
+for an oracle slot. Compile blackbox binaries before taking the JVM lock; CPU
+contention during startup can consume the harness readiness budget.

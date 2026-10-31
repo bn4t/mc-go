@@ -483,3 +483,8 @@ Resource overrides must follow toolchain activation. This workspace activation
 sets GOMAXPROCS=4, and work/run-oracle.sh sources it again; use
 `work/run-oracle.sh env GOMAXPROCS=2 ...` when requesting a two-thread oracle.
 Record the effective environment rather than assuming an outer export survived.
+
+For environmental health controls, observe mode admission and establish the
+baseline after transit damage has settled. Heal outside a suffocating block.
+Send a physical movement once and poll its applied position without resending;
+retain event capture through those receipts and subsequent state queries.
