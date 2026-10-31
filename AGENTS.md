@@ -441,3 +441,11 @@ checks: rounded coordinates can erase a small support gap. Preserve old numeric
 expectations when correcting a fixture’s geometry only after independent native
 measurement establishes that geometry. Separate settled post-movement windows
 from the immediate packet-to-frame transient and full movement simulation.
+
+For normal-world structure comparisons, witness the actual loaded height column,
+including leaves and other decoration, before treating a final frame difference
+as a placement defect. A protected initial spread target does not protect blocks
+lower in an unconditional debris drip. Preserve the failed geometry assertions;
+when generator decoration differs, measure and pin an explicit matching live
+column on both servers and scope the proof to that input. Do not claim untouched
+whole-terrain parity from a controlled canopy fixture.

@@ -1704,6 +1704,11 @@ materialize missing chunks. Natural ProtoChunk heightmap stages remain separate.
 Native physical unloading and interactions with other command map consumers
 remain unverified while the backend retains its resident columns. Other commands'
 configured-zero seed fallback is unchanged by this scoped normal-ocean path.
+The seed-zero comparison explicitly matches a persistent oak-leaf column before
+its first heightmap sample. Native generated oak canopy and Go sparse decoration
+differ at that column, changing whether portal debris can descend through the
+low frame. This generated-decoration gap remains unresolved; the controlled
+fixture establishes matched-input placement, not untouched whole-terrain parity.
 
 Persisted creepers restore powered and ignited state with signed fuse/radius
 fields. Live ignition is sticky under false/absent NBT; powered state is

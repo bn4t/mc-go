@@ -124,6 +124,15 @@ func TestPlaceOceanPortalNormalParity(t *testing.T) {
 						restore()
 						stages = 2
 					}
+					if tc.seed == 0 {
+						// Match the loaded column used by the native fixture's
+						// oak canopy: this sample excludes the low frame from
+						// debris spread. Terrain decoration itself is separate.
+						feedback("setblock -7 70 3 minecraft:oak_leaves[persistent=true]", "commands.setblock.success")
+						if !said("execute if block -7 70 3 minecraft:oak_leaves[persistent=true]") {
+							t.Fatal("seed0 canopy sentinel absent")
+						}
+					}
 					for stage := 0; stage < stages; stage++ {
 						if tc.control {
 							if stage == 1 {
