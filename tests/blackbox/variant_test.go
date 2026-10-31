@@ -174,13 +174,12 @@ func TestHolderVariantParity(t *testing.T) {
 
 	for _, addr := range []string{targets.vanilla, targets.mcgo} {
 		c, pr, pw := joinPlayBlackbox(t, addr, "Var")
-		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
-		sink := newChatSink(pr, pw)
-		time.Sleep(400 * time.Millisecond)
-		sendCommand(t, pw, "gamemode spectator Var")
-		sendCommand(t, pw, "tp @s 0 -60 0")
-		time.Sleep(400 * time.Millisecond)
-		sink.take()
+		awaitPlayReadyBlackbox(t, addr, c, pr, pw)
+		sink := newChatSinkResolvedTP(pr, pw)
+		for _, cmd := range []string{"tick freeze", "gamemode spectator Var", "tp @s 0 -60 0", "say HOLDERSETUP"} {
+			sendCommand(t, pw, cmd)
+		}
+		waitForExactSayBB(t, sink, "HOLDERSETUP", 20*time.Second)
 
 		summons := []struct{ name, nbt string }{
 			{"cat", `{variant:"minecraft:persian",NoAI:1b}`},
@@ -262,33 +261,52 @@ func TestHolderVariantParity(t *testing.T) {
 			{}, {}, {}, {}, {}, {},
 		}
 
-		for i, s := range summons {
-			// Two rows of 12 — the join sends no client_information
-			// so vanilla's default view distance (2 → 32-block
-			// entity tracking) must still reach the last summons.
-			sendCommand(t, pw, fmt.Sprintf("summon minecraft:%s %d -60 %d %s", s.name, (i%12)*2, 3+(i/12)*2, s.nbt))
-			time.Sleep(120 * time.Millisecond)
-		}
-		time.Sleep(1200 * time.Millisecond)
-
 		gotMeta := map[int]map[int]metaEnt{}
-		for _, l := range sink.take() {
-			i := strings.IndexByte(l, ':')
-			if i < 0 || l[:i] != "0x63" {
-				continue
+		for i, s := range summons {
+			x, z := float64((i%12)*2)+0.5, float64(3+(i/12)*2)+0.5
+			typ, ok := server.EntityTypeID(s.name)
+			if !ok {
+				t.Fatal("unknown entity type", s.name)
 			}
-			r := protocol.NewPacketReader([]byte(l[i+1:]))
-			eid, _ := r.VarInt()
-			slot := int(eid) - 2
-			if slot < 0 || slot >= len(summons) {
-				continue
+			sendCommand(t, pw, fmt.Sprintf("summon minecraft:%s %g -60 %g %s", s.name, x, z, s.nbt))
+			id := int32(-1)
+			deadline := time.Now().Add(20 * time.Second)
+			for gotMeta[i] == nil && time.Now().Before(deadline) {
+				for _, line := range sink.take() {
+					if strings.HasPrefix(line, "0x1:") {
+						r := protocol.NewPacketReader([]byte(line[len("0x1:"):]))
+						eid, e1 := r.VarInt()
+						_, e2 := r.UUID()
+						kind, e3 := r.VarInt()
+						sx, e4 := r.Double()
+						sy, e5 := r.Double()
+						sz, e6 := r.Double()
+						if e1 == nil && e2 == nil && e3 == nil && e4 == nil && e5 == nil && e6 == nil && kind == typ && sx == x && sy == -60 && sz == z {
+							id = eid
+						}
+					}
+					if id >= 0 && gotMeta[i] == nil && strings.HasPrefix(line, "0x63:") {
+						r := protocol.NewPacketReader([]byte(line[len("0x63:"):]))
+						eid, err := r.VarInt()
+						if err != nil || eid != id {
+							continue
+						}
+						rest, err := r.Read(r.Remaining())
+						if err != nil {
+							t.Fatal(err)
+						}
+						gotMeta[i] = decodeMetaEntries(t, rest)
+					}
+				}
+				if gotMeta[i] == nil {
+					time.Sleep(10 * time.Millisecond)
+				}
 			}
-			rest, _ := r.Read(r.Remaining())
-			ents := decodeMetaEntries(t, rest)
-			if len(ents) > len(gotMeta[slot]) {
-				gotMeta[slot] = ents
+			if gotMeta[i] == nil {
+				t.Fatalf("%s: %s paired initial metadata absent (id%d)", addr, s.name, id)
 			}
 		}
+
 		for i, s := range summons {
 			got := gotMeta[i]
 			if len(got) == 0 {
@@ -360,19 +378,19 @@ func TestHolderVariantParity(t *testing.T) {
 			{`@e[type=minecraft:bee,nbt={flower_pos:[I;4,5,6]}]`, "ZFPI"},
 			{`@e[type=minecraft:bee,nbt={flower_pos:[I;4,5,6]}] unless entity @e[type=minecraft:bee,nbt={hive_pos:[I;1,2,3]}]`, "ZHIVEDROP"},
 		}
+		// Initial metadata was captured while frozen. Advance a completed exact
+		// window before testing the existing bee AI/counter/hive outcomes.
+		shulkerStepTicks(t, pw, sink, 21)
 		for _, p := range probes {
 			sendCommand(t, pw, fmt.Sprintf("execute if entity %s run say %s", p.sel, p.mark))
-			time.Sleep(120 * time.Millisecond)
 		}
-		time.Sleep(800 * time.Millisecond)
+		sendCommand(t, pw, "say HOLDERPROBESEND")
+		lines := waitForExactSayBB(t, sink, "HOLDERPROBESEND", 20*time.Second)
 		hits := map[string]bool{}
-		for _, l := range sink.take() {
-			for _, p := range probes {
-				if strings.Contains(l, p.mark) {
-					hits[p.mark] = true
-				}
-			}
+		for _, p := range probes {
+			hits[p.mark] = structureSaidBB(lines, p.mark)
 		}
+
 		for _, p := range probes {
 			if !hits[p.mark] {
 				t.Fatalf("%s: selector probe %s missed (%s)", addr, p.mark, p.sel)
