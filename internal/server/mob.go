@@ -1552,7 +1552,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.MaxSwell = int32(itemSavedShort(snbtToValue(v), 30))
 				}
 				if v, ok := tag.vals["ExplosionRadius"]; ok {
-					e.BlastPower = int32(snbtNum(v))
+					e.BlastPower = int32(int8(itemSavedShort(snbtToValue(v), 3)))
 				}
 				if v, ok := tag.vals["ignited"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
 					e.Ignited = true
@@ -8950,10 +8950,7 @@ func (s *Server) mobSwellStep(e *Entity, kn string) bool {
 // default 3) doubled when powered, centered on the feet, MOB
 // interaction — then discard.
 func (s *Server) explodeCreeper(e *Entity) {
-	power := float32(3)
-	if e.BlastPower > 0 {
-		power = float32(e.BlastPower)
-	}
+	power := float32(e.BlastPower)
 	if e.Powered {
 		power *= 2
 	}

@@ -801,10 +801,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		if typeName == "creeper" {
 			m["powered"] = nbtBool(e.Powered)
 			m["Fuse"] = int16(e.MaxSwell)
-			m["ExplosionRadius"] = int8(3)
-			if e.BlastPower > 0 {
-				m["ExplosionRadius"] = int8(e.BlastPower)
-			}
+			m["ExplosionRadius"] = int8(e.BlastPower)
 			if e.Ignited {
 				m["ignited"] = nbtBool(true)
 			}
@@ -1370,6 +1367,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	if name == "creeper" {
 		// Changing the limit leaves the already elapsed swell intact.
 		e.MaxSwell = int32(itemSavedShort(save["Fuse"], 30))
+		e.BlastPower = int32(int8(itemSavedShort(save["ExplosionRadius"], 3)))
 	}
 
 	if name == "armor_stand" {
@@ -2027,6 +2025,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	}
 	if name == "experience_orb" {
 		known["Value"], known["Count"] = true, true
+	}
+	if name == "creeper" {
+		known["ExplosionRadius"] = true
 	}
 	if name == "area_effect_cloud" {
 		known["DurationOnUse"] = true

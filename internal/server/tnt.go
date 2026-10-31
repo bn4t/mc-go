@@ -230,6 +230,12 @@ func (s *Server) explodeWith(src *Entity, x, y, z float64, radius float32, grief
 	}
 	s.entities.mu.RUnlock()
 	push := func(eid int32, ex, ey, ez, eyeY float64, kbResist float64) (float64, [3]float64, bool) {
+		// Nonpositive explosions still emit their signed wire radius,
+		// but do not damage or push entities.
+		if radius <= 0 {
+			return 0, [3]float64{}, false
+		}
+
 		dist := math.Sqrt((ex-x)*(ex-x)+(ey-y)*(ey-y)+(ez-z)*(ez-z)) / doubleR
 		if dist > 1 {
 			return 0, [3]float64{}, false
@@ -291,7 +297,9 @@ func (s *Server) explodeWith(src *Entity, x, y, z float64, radius float32, grief
 
 	// End crystals in range take explosion damage too (removed, no
 	// chain blast).
-	s.explodeHurtEndCrystals(src, x, y, z, radius)
+	if radius > 0 {
+		s.explodeHurtEndCrystals(src, x, y, z, radius)
+	}
 
 	// interactWithBlocks, DESTROY_WITH_DECAY — the vanilla order is
 	// shuffle → per-cell onExplosionHit → popResource per dropped stack.

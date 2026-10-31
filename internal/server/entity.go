@@ -1251,6 +1251,11 @@ func (m *Manager) Spawn(e *Entity) *Entity {
 	if name, _ := EntityTypeName(e.Type); name == "creeper" && e.MaxSwell == 0 {
 		e.MaxSwell = 30
 	}
+	// Creeper radius defaults at construction, before NBT can load a
+	// meaningful zero or negative signed-byte value.
+	if name, _ := EntityTypeName(e.Type); name == "creeper" && e.BlastPower == 0 {
+		e.BlastPower = 3
+	}
 	// Entity constructs with the virtual getMaxAirSupply value.
 	airName, _ := EntityTypeName(e.Type)
 	e.AirSupply = mobMaxAirSupply(airName)

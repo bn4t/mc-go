@@ -1628,3 +1628,10 @@ integer with signed half ties toward positive infinity. The fractional-part
 comparison preserves doubles immediately below a half step. Physical positions
 remain independent from encoded endpoints; other codecs and frozen spawn-resend
 timing are separate. Public API facts are reproduced in tools/probeentityposition.
+
+Creeper ExplosionRadius defaults to3 for absence/wrong types and uses signed-byte
+coercion. Zero and negative values retain their signed explosion packet radius
+while leaving observed blocks, health, motion and end crystals intact. Charged
+creepers multiply the signed value. Canonical live radius edits consume the raw
+field instead of allowing ExtraNBT to override it. Positive-radius sampling and
+damage algorithms are unchanged; complete explosion/restart parity remains open.
