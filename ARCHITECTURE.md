@@ -1703,8 +1703,12 @@ Persisted creepers restore powered and ignited state with signed fuse/radius
 fields. Live ignition is sticky under false/absent NBT; powered state is
 replaceable. Elapsed swell resets on cold construction and survives live edits.
 Both flags serialize explicit bytes. Native readback covers actual Go entity-only
-exports; the separately reproduced generic /tag serialization failure prevents
-a broader whole-world save claim for that command sequence.
+exports. The separately reproduced NPC `/tag` save failure is now fixed at the
+mutation owner: nonempty Tags use a detached NBT string list and removing the
+last tag omits Tags. Full SaveWorld and cold reload pass for generated creeper/pig
+controls and the actual four-creeper native fixture; a native public storage
+decoder accepts the Go output. This establishes tag writer compatibility, not
+additional native physical-world or creeper lifecycle behavior.
 
 Fixed-position powder freezing adds one contact step plus newly intersected
 vertical powder rows. Cached bounds and existing collision clipping distinguish

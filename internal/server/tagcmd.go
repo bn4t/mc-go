@@ -166,8 +166,8 @@ func removeEntityTag(d *dataEntity, tag string) bool {
 	return false
 }
 
-// mobTags pulls the string Tags list out of an entity's ExtraNBT —
-// /summon stores it as an nbt.List, /tag writes it as plain []any.
+// mobTagList reads typed saved tags or a legacy in-memory list. Mutations
+// always replace the value with a privately owned persistent string list.
 func mobTagList(e *Entity) []string {
 	if e == nil {
 		return nil
@@ -191,6 +191,11 @@ func mobTagList(e *Entity) []string {
 }
 
 func setMobTagList(e *Entity, tags []string) {
+	// Native Entity.save omits Tags when the set is empty.
+	if len(tags) == 0 {
+		delete(e.ExtraNBT, "Tags")
+		return
+	}
 	if e.ExtraNBT == nil {
 		e.ExtraNBT = map[string]any{}
 	}
@@ -198,5 +203,5 @@ func setMobTagList(e *Entity, tags []string) {
 	for _, t := range tags {
 		items = append(items, t)
 	}
-	e.ExtraNBT["Tags"] = items
+	e.ExtraNBT["Tags"] = nbt.List{Elem: nbt.TagString, Items: items}
 }

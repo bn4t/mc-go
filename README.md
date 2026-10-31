@@ -488,3 +488,8 @@ Ocean ruined portals are also available through `/place structure` on flat and
 standard normal overworlds. Coldness follows the original generator biome even
 after `/fillbiome` edits. Normal placement uses the actual terrain seed, including
 zero; other generator and dimension contexts remain unsupported.
+
+NPC `/tag` mutations retain canonical string-list NBT through world save and
+cold reload, including duplicate rejection and removal of the last tag. Native
+storage decoding accepts measured Go output; broader lifecycle parity remains
+scoped to the tests recorded in `GOAL.md`.
