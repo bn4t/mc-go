@@ -1553,3 +1553,9 @@ nontransactional across files and provide no fsync guarantee. Gzip/external
 entity reads remain unsupported and block saves; replacement of an external
 record can orphan its sidefile. Export without loading grants no authority over
 preexisting roots. This does not implement runtime entity unloading.
+
+Mounted entity/player command save views and entitySaveMap consumers serialize
+the direct vehicle's X/Z with the rider's own Y. Runtime seats and teleport
+packets remain independent; unmounted executor-position markers witness live
+seats. This does not establish player disk snapshot/RootVehicle remount parity
+or scale/resize lifecycle parity.

@@ -587,6 +587,12 @@ func entityDisplayName(e *Entity) component {
 // leash key's shape depends on the holder being a knot or an entity.
 func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	typeName, _ := EntityTypeName(e.Type)
+	x, z := e.X, e.Z
+	if ents != nil && e.Riding != 0 {
+		if vehicle, ok := ents.Get(e.Riding); ok {
+			x, z = vehicle.X, vehicle.Z
+		}
+	}
 	m := map[string]any{
 		"Air":          e.AirSupply,
 		"Fire":         int16(e.FireTicks),
@@ -596,7 +602,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		}},
 		"OnGround":       nbtBool(e.Grounded),
 		"PortalCooldown": e.PortalCooldown,
-		"Pos":            nbt.List{Elem: nbt.TagDouble, Items: []any{e.X, e.Y, e.Z}},
+		"Pos":            nbt.List{Elem: nbt.TagDouble, Items: []any{x, e.Y, z}},
 		"Rotation":       nbt.List{Elem: nbt.TagFloat, Items: []any{e.Yaw, e.Pitch}},
 		"UUID": []int32{
 			int32(e.UUID[0])<<24 | int32(e.UUID[1])<<16 | int32(e.UUID[2])<<8 | int32(e.UUID[3]),
@@ -1152,9 +1158,8 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		}
 	}
 	// A vehicle emits Passengers only while non-empty (each child
-	// through saveAsPassenger: own save + "id"). A rider's own Pos
-	// needs no special-casing — positionRider welds its X/Y/Z each
-	// tick, so the generic emit already carries the seat offset.
+	// through saveAsPassenger: own save + "id"). Native saved Pos uses
+	// the direct vehicle X/Z and the rider Y; runtime seats stay distinct.
 	if len(e.Passengers) > 0 && ents != nil {
 		list := nbt.List{Elem: nbt.TagCompound}
 		for _, pid := range e.Passengers {
@@ -2233,6 +2238,13 @@ func nbtTruth(v any) bool {
 // gap — path gets and mutations resolve on the modeled fields.
 func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 	x, y, z, yaw, pitch, onGround := sess.Pos()
+	// Measured Entity.saveWithoutId: mounted saved Pos centers X/Z on
+	// the direct vehicle, while preserving the rider's actual Y.
+	if ents != nil && sess.riding.Load() != 0 {
+		if vehicle, ok := ents.Get(sess.riding.Load()); ok {
+			x, z = vehicle.X, vehicle.Z
+		}
+	}
 	u := sess.getUUID()
 	m := map[string]any{
 		"AbsorptionAmount":    sess.absorb,

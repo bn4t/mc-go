@@ -488,3 +488,11 @@ For environmental health controls, observe mode admission and establish the
 baseline after transit damage has settled. Heal outside a suffocating block.
 Send a physical movement once and poll its applied position without resending;
 retain event capture through those receipts and subsequent state queries.
+
+
+## Mounted position evidence
+
+A mounted entity's `/data get ... Pos` is its serialized representation: direct
+vehicle X/Z with rider Y. Measure live position independently, for example with
+an unmounted marker summoned at the rider executor. Keep actual packet movement,
+live seats, command save views and player disk snapshots as separate checks.

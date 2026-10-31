@@ -58,7 +58,11 @@ func tp125Lines(lines []string) []string {
 	return out
 }
 
-func TestMountTeleportParity(t *testing.T) {
+func TestMountTeleportParity(t *testing.T) { runMountTeleportParity(t, false) }
+
+func TestMountTeleportSavedAndLivePositionParity(t *testing.T) { runMountTeleportParity(t, true) }
+
+func runMountTeleportParity(t *testing.T, exactPosition bool) {
 	targets := requireBlackboxFiles(t, map[string]string{"command-spam-threshold-seconds": "0"}, map[string]string{
 		"ops.json": opsJSONFor("RdrA", "RdrB"),
 	}, nil)
@@ -68,7 +72,8 @@ func TestMountTeleportParity(t *testing.T) {
 		ctrl125, other125 []string
 		posBoat           string
 		posA, posB        string
-		actual            [3][3]float64
+		saved             [3][3]float64
+		live              [2][3]float64
 	}
 	run := func(addr string) *leg {
 		ca, pra, pwa, aid := joinPlayEid(t, addr, "RdrA")
@@ -266,7 +271,14 @@ func TestMountTeleportParity(t *testing.T) {
 		fold(true, sa.take())
 		fold(false, sb.take())
 		frames("MTPFinal")
-		out.actual = [3][3]float64{position(boat), position("RdrA"), position("RdrB")}
+		out.saved = [3][3]float64{position(boat), position("RdrA"), position("RdrB")}
+		// A saved mounted Pos uses vehicle X/Z. Independent unmounted markers
+		// witness each executor's live position without changing its seat.
+		for i, name := range []string{"RdrA", "RdrB"} {
+			tag := "MTPLive" + name
+			command("execute at " + name + " run summon minecraft:marker ~ ~ ~ {Tags:[\"" + tag + "\"]}")
+			out.live[i] = position("@e[type=minecraft:marker,tag=" + tag + ",limit=1]")
+		}
 		// Retain the original raw Pos receipt comparisons as well.
 		sendCommand(t, pwa, "data get entity "+boat+" Pos")
 		sendCommand(t, pwa, "data get entity RdrA Pos")
@@ -285,7 +297,7 @@ func TestMountTeleportParity(t *testing.T) {
 			out.posA = posLines[len(posLines)-2]
 			out.posB = posLines[len(posLines)-1]
 		}
-		t.Logf("%s full controlling=%v other=%v actualPos=%v", addr, out.ctrl125, out.other125, out.actual)
+		t.Logf("%s full controlling=%v other=%v savedPos=%v livePos=%v", addr, out.ctrl125, out.other125, out.saved, out.live)
 		return out
 	}
 	want := run(targets.vanilla)
@@ -331,5 +343,21 @@ func TestMountTeleportParity(t *testing.T) {
 		t.Fatalf("rider B Pos: vanilla %q vs mc-go %q", want.posB, got.posB)
 	}
 
+	if exactPosition {
+		for rider := range want.live {
+			for axis := range want.live[rider] {
+				if math.Abs(want.live[rider][axis]-got.live[rider][axis]) > 1e-6 {
+					t.Errorf("live Pos rider%d axis%d native%.17g Go%.17g", rider, axis, want.live[rider][axis], got.live[rider][axis])
+				}
+			}
+		}
+		for entity := range want.saved {
+			for axis := range want.saved[entity] {
+				if math.Abs(want.saved[entity][axis]-got.saved[entity][axis]) > 1e-6 {
+					t.Fatalf("saved Pos entity%d axis%d: vanilla%.17g mc-go%.17g", entity, axis, want.saved[entity][axis], got.saved[entity][axis])
+				}
+			}
+		}
+	}
 
 }
