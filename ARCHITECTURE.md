@@ -1559,3 +1559,8 @@ the direct vehicle's X/Z with the rider's own Y. Runtime seats and teleport
 packets remain independent; unmounted executor-position markers witness live
 seats. This does not establish player disk snapshot/RootVehicle remount parity
 or scale/resize lifecycle parity.
+
+Hunger spends at most one four-point exhaustion quantum per admitted player
+frame, strictly above four. Fractional saturation clamps to zero without
+reducing food in the same quantum; regeneration exhaustion waits until the
+next frame.

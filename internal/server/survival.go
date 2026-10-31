@@ -1309,14 +1309,15 @@ func (s *Server) hungerTickStep() {
 			return true
 		}
 		changed := false
-		// Exhaustion spends first, strictly above four: take a saturation,
-		// then a food point. The exhaustion a regen heal adds drains on
+		// Native FoodData.tick spends at most one exhaustion budget per
+		// player frame, strictly above four. A positive saturation pool
+		// pays the budget and clamps at zero without spilling into food. The exhaustion a regen heal adds drains on
 		// the NEXT tick, so its health packet still carries the old
 		// saturation.
-		for sess.exhaustion > 4 {
+		if sess.exhaustion > 4 {
 			sess.exhaustion -= 4
 			if sess.saturation > 0 {
-				sess.saturation--
+				sess.saturation = max(0, sess.saturation-1)
 			} else if sess.food > 0 && s.difficulty != DifficultyPeaceful {
 				sess.food--
 			}
