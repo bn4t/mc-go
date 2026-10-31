@@ -406,6 +406,11 @@ func (s *Server) hopperTickStep() {
 			if !isHopperBlock(blk) {
 				continue
 			}
+			// A disabled hopper still counts down, but cannot inspect its
+			// neighbors' inventories (and must not unpack their loot).
+			if world.BlockProperties(blk)["enabled"] == "false" {
+				continue
+			}
 			face := hopperFacing(blk)
 			target := world.Pos{X: e.pos.X + face[0], Y: e.pos.Y + face[1], Z: e.pos.Z + face[2]}
 			moved := s.hopperPush(d, e.pos, target, e.h)
@@ -482,10 +487,22 @@ func (s *Server) hopperPull(d *dimension, pos world.Pos, h *hopperData) bool {
 	above := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
 	d.hoppers.mu.Lock()
 	defer d.hoppers.mu.Unlock()
+	// Native fullness admission precedes touching the source. Merely
+	// refusing its items later would already have consumed latent loot.
+	full := true
+	for _, item := range h.slots {
+		if item.Empty() || item.Count < maxStackOfID(item.ID) {
+			full = false
+			break
+		}
+	}
+	if full {
+		return false
+	}
 	// The hopper is the destination, and it is locked before the source
 	// is looked into: nothing is taken out of the container above until
 	// the hopper has room for it.
-	return hopperTakeOne(d, above, func(candidate ItemStack) bool {
+	return s.hopperTakeOne(d, above, func(candidate ItemStack) bool {
 		one := candidate
 		one.Count = 1
 		return slotsInsert(h.slots[:], &one)
@@ -511,6 +528,7 @@ func (s *Server) hopperInsert(d *dimension, target, from world.Pos, one ItemStac
 		chest := s.chestAt(d, target)
 		d.chests.mu.Lock()
 		defer d.chests.mu.Unlock()
+		s.unpackBlockContainerLoot(d, target, chest.slots[:], &chest.lootTable, &chest.lootSeed, nil)
 		moving := one
 		return slotsInsert(chest.slots[:], &moving)
 	case isFurnaceBlock(blk):
@@ -543,6 +561,7 @@ func (s *Server) hopperInsert(d *dimension, target, from world.Pos, one ItemStac
 		}
 		d.containers.mu.Lock()
 		defer d.containers.mu.Unlock()
+		s.unpackBlockContainerLoot(d, target, c.slots, &c.lootTable, &c.lootSeed, nil)
 		moving := one
 		return slotsInsert(c.slots, &moving)
 	}
@@ -553,7 +572,7 @@ func (s *Server) hopperInsert(d *dimension, target, from world.Pos, one ItemStac
 // caller holds the hopper store's lock, and a source that is itself a
 // hopper is reached through that same lock, so no transfer ever holds
 // two locks at once.
-func hopperTakeOne(d *dimension, pos world.Pos, accept func(ItemStack) bool) bool {
+func (s *Server) hopperTakeOne(d *dimension, pos world.Pos, accept func(ItemStack) bool) bool {
 	blk := d.w.GetBlock(pos)
 	switch {
 	case isHopperBlock(blk):
@@ -569,6 +588,7 @@ func hopperTakeOne(d *dimension, pos world.Pos, accept func(ItemStack) bool) boo
 		}
 		d.chests.mu.Lock()
 		defer d.chests.mu.Unlock()
+		s.unpackBlockContainerLoot(d, pos, chest.slots[:], &chest.lootTable, &chest.lootSeed, nil)
 		return slotsTakeOne(chest.slots[:], accept)
 	case isFurnaceBlock(blk):
 		f := d.furnaces.furnaces[pos]
@@ -587,6 +607,7 @@ func hopperTakeOne(d *dimension, pos world.Pos, accept func(ItemStack) bool) boo
 		}
 		d.containers.mu.Lock()
 		defer d.containers.mu.Unlock()
+		s.unpackBlockContainerLoot(d, pos, c.slots, &c.lootTable, &c.lootSeed, nil)
 		return slotsTakeOne(c.slots, accept)
 	}
 }

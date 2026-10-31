@@ -405,3 +405,9 @@ amount and operation alongside a physical consumer. Distinguish raw summons,
 live edits and cold restoration: class overrides can change effective maximum
 health before a living frame caps Health. A normalized cold record does not
 establish the ordering for an initially over-maximum record.
+
+Automation probes must witness input items, counts, cooldown and actual enabled
+block state before stepping. Keep command ingress separate from transfer logic;
+if the setup route is defective, preserve its own red case and rerun unchanged
+production with the corrected fixture. Use player-free controls and a positive
+fresh-menu advancement alongside absence of credit after automated unpacking.

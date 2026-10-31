@@ -1663,3 +1663,12 @@ reaches its living consumer on an admitted frame without healing an injured body
 Effective scale remains distinct from the first-frame collision-box refresh.
 Horse, pig and wild-wolf cases are pinned. Existing live-save loading order,
 owned-wolf health behavior and other class-specific raw readers remain separate.
+
+Eligible hopper extraction and insertion unpack latent chest/barrel loot at the
+container's own biome origin with no opening player. Disabled hoppers and full
+extraction recipients preserve unopened loot; later menu access does not award
+loot credit already consumed by automation. Existing one-item movement and
+cooldowns remain. Native checks use explicit enabled states and default stack
+caps; redstone transitions, double-chest automation, other container families
+and automation restart behavior remain separate. Command biome zoom and hopper
+NBT through setblock have independent recorded gaps, outside this consumer fix.
