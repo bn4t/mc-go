@@ -1662,8 +1662,12 @@ attributes and permanent modifiers into runtime instances. Health reads the
 loaded maximum before measured class overrides; a materialized max-health base
 reaches its living consumer on an admitted frame without healing an injured body.
 Effective scale remains distinct from the first-frame collision-box refresh.
-Horse, pig and wild-wolf cases are pinned. Existing live-save loading order,
-owned-wolf health behavior and other class-specific raw readers remain separate.
+Horse, pig and wolf cases are pinned. Other class-specific raw readers remain
+separate. Wolf loading reads Health against loaded attributes before an unowned
+class reset changes the maximum to8. Frozen Health can temporarily exceed that
+maximum; an admitted frame or actual positive damage setter caps it. Valid owned
+wolves retain their loaded maximum without healing. Removing a valid Owner
+clears its saved reference. Active taming side effects remain separate.
 
 Eligible hopper extraction and insertion unpack latent chest/barrel loot at the
 container's own biome origin with no opening player. Disabled hoppers and full

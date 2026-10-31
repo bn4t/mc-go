@@ -193,10 +193,11 @@ func TestDataEntityParity(t *testing.T) {
 // TestDataMergeHealthParity pins the Health write path of entity
 // /data merge: vanilla's load clamps the merged value to
 // [0, max_health] and pushes a zeroed mob through die() on the next
-// tick. The wolf leg also pins the tameable quirk — reloading a wolf
-// re-runs setTame(false), which re-asserts the wild max_health base
-// and clamps health against the reverted base, so {Health:100f}
-// lands at 8 even right after /attribute raised max_health to 40.
+// tick. An untamed wolf reads Health against the loaded maximum before
+// its class resets max_health to8, so max40/Health100 initially gives
+// Health40 with effective max8. This unfrozen, sleep-paced fixture sees
+// the later living-frame cap to8; TestWolfFrozenLoadHealthParity pins
+// the distinct immediate ordering.
 // Player targets stay read-only: commands.data.entity.invalid.
 func TestDataMergeHealthParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil, map[string]string{

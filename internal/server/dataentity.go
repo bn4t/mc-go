@@ -1248,9 +1248,9 @@ var patrollingTypes = map[string]bool{
 	"illusioner": true, "witch": true, "ravager": true,
 }
 
-// tamableWildHealth is the wild max_health that
-// TamableAnimal.setTame(false) re-asserts on load — the vanilla taming
-// tables bump it back up when the entity reads an Owner.
+// tamableWildHealth is re-asserted by untamed wolf loading after Health
+// was read against the packed attributes. A valid Owner retains the loaded
+// base; active taming side effects are separate from loading a reference.
 var tamableWildHealth = map[string]float64{
 	"wolf": 8,
 }
@@ -1393,23 +1393,6 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		e.MetaDirty = true
 		e.AttrDirty = true
 	}
-	// Tamable reload quirk: vanilla's TamableAnimal.setTame(false)
-	// — run because the merged save carries no Owner — re-asserts
-	// the wild max_health base, undoing any /attribute override
-	// before the Health write clamps against it. A wolf merged with
-	// {Health:100f} ends at 8, not 40, even after base set 40. This
-	// runs after applyPackedAttrs because vanilla applies the packed
-	// attributes first (LivingEntity.load) and reverts the base in
-	// readAdditionalSaveData.
-	if wild, ok := tamableWildHealth[name]; ok {
-		if save["Owner"] == nil {
-			if e.AttrBase == nil {
-				e.AttrBase = map[string]float64{}
-			}
-			e.AttrBase["max_health"] = wild
-			e.markAttrDirty("max_health")
-		}
-	}
 	if v, ok := nbtFloat(save["Health"]); ok && name != "experience_orb" {
 		// setHealth clamps to [0, getMaxHealth] — the attribute's
 		// effective value — so a merged {Health:0f} marks the mob
@@ -1427,6 +1410,27 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		// getMaxHealth() — LivingEntity.load's getFloatOr — while
 		// non-living entities carry no health semantic at all.
 		e.Health = float32(attrValue(mobAttrBase(e, "max_health"), e.AttrMods["max_health"]))
+	}
+	// Frozen raw/live/cold wolf probes read Health against loaded attributes
+	// before the untamed class reset: max40/Health100 initially becomes
+	// Health40 with effective max8, then an admitted frame caps it to8.
+	if wild, ok := tamableWildHealth[name]; ok && save["Owner"] == nil {
+		if e.AttrBase == nil {
+			e.AttrBase = map[string]float64{}
+		}
+		e.AttrBase["max_health"] = wild
+		e.markAttrDirty("max_health")
+		// Valid Owner removal reloads an unowned wolf, rather than retaining
+		// its previous reference and tame flag in the next save.
+		e.ownerUUID = [16]byte{}
+		e.owner = ""
+		e.tamed = false
+	}
+	if name == "wolf" {
+		_, validOwner := foxTrustedUUID(save["Owner"])
+		if save["Owner"] == nil || validOwner {
+			e.MaxHealth = effectiveMobAttributeMaxHealth(e)
+		}
 	}
 	if v, ok := save["CustomName"]; ok && v != nil {
 		var cs string

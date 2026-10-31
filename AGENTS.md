@@ -424,3 +424,8 @@ metadata to the actual resident identity, test GC and replacement, and prove
 that missing-column checks do not invoke a provider. Keep temporary runtime
 maps out of saved data and natural generation caches. A copied-save restart
 needs a positive freshly changed terrain receipt, not only a map-count check.
+
+Health/max-health probes must distinguish raw, live merge and actual cold restore
+before an admitted tick. Retain normalized records, valid Owner state, actual
+damage and no-heal controls. An unfrozen sleep-paced query can observe a later
+clamp; applied damage need not equal a class maximum’s additional normalization.

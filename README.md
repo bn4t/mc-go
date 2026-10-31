@@ -29,7 +29,9 @@ not establish complete vanilla behavior for its entire subsystem.
 
 Generic living summons and passengers now apply modern attributes and permanent
 modifiers, with measured scale and health consumers; class-specific loading
-remains partial. Recent persistence checks retain supported living corpses and
+remains partial. Wolf checks distinguish initial loaded health, the wild maximum
+reset and later damage/frame clamps, including valid Owner removal. Recent
+persistence checks retain supported living corpses and
 resume their saved death countdown without replaying drops. Container menus and item commands now
 unpack latent loot using the owning container's biome. Measured chest/barrel
 hopper automation does the same without granting later menu loot credit. Player powder-snow melt,

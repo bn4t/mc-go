@@ -1357,7 +1357,7 @@ func (m *Manager) SetMotion(id int32, x, y, z float64) bool {
 // event and knockback on that excess path.
 type DamageResult struct {
 	Health float32 // post-hit health
-	Dealt  float32 // health the hit removed (post-armor, health-capped)
+	Dealt  float32 // applied post-armor amount, capped by pre-hit health
 	Exists bool    // the entity was found and not dying
 	// Graced marks the invulnerableTime tail hit that returned
 	// false in vanilla (orig <= lastHurt): no damage event, no
@@ -1472,12 +1472,21 @@ func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel 
 		}
 	}
 	amount = reduceDamage(amount, armor, toughness, breachLevel)
-	// Vanilla's damage_dealt is the health the target actually lost:
-	// the hit's amount clamped to the pre-hit health.
+	// Preserve the applied amount capped by pre-hit health. A separate
+	// class-maximum clamp can reduce transient loaded health further.
 	if amount > e.Health {
 		amount = e.Health
 	}
 	e.Health -= amount
+	// A loaded untamed wolf can temporarily have Health40 above its class maximum8.
+	// An actual positive damage setter caps that state immediately; the
+	// applied amount remains separate from this clamp. Other entity paths
+	// and zero/absorbed/rejected hits retain their existing behavior.
+	if mobName == "wolf" && !e.tamed && amount > 0 {
+		if _, loadedBase := e.AttrBase["max_health"]; loadedBase {
+			e.Health = min(e.Health, effectiveMobAttributeMaxHealth(e))
+		}
+	}
 	if e.Health < 0 {
 		e.Health = 0
 	}
