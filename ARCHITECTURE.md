@@ -1675,8 +1675,14 @@ extraction recipients preserve unopened loot; later menu access does not award
 loot credit already consumed by automation. Existing one-item movement and
 cooldowns remain. Native checks use explicit enabled states and default stack
 caps; redstone transitions, double-chest automation, other container families
-and automation restart behavior remain separate. Hopper NBT through setblock has an independent recorded gap, outside this
-consumer fix. Execute biome conditions now use the existing zoomed lookup for
+and automated latent-loot restart behavior remain separate. Hopper `/setblock`
+loads its `Items` and `TransferCooldown` through the existing block-entity codec;
+an omitted cooldown resets to -1, including same-state replacements, while
+explicit zero stays zero. Native comparison pins exact five-slot menus, ignored
+out-of-range slots, empty inventory replacement, a two-tick one-item transfer
+and cold reload from a completed-save copy made before shutdown. Chest, barrel
+and furnace ingress remain independent controls. This does not claim other
+hopper NBT fields, redstone transitions or latent-loot restart parity. Execute biome conditions now use the existing zoomed lookup for
 the bound dimension and parsed position, including edited quart boundaries and
 generated terrain. Local caret block coordinates, biome tags and unloaded-query
 errors remain separate.

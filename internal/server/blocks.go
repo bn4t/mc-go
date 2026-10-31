@@ -235,10 +235,16 @@ func (s *Server) runSetblock(player string, args []string) reply {
 			}
 		}
 	}
-	if tag != nil && isFurnaceBlock(blk) {
-		// A placed furnace loads the same inventory, counters and recipe
-		// ledger as native block-entity data; the actual block owns its type.
+	if tag != nil && (isFurnaceBlock(blk) || isHopperBlock(blk)) {
+		// Placed furnaces and hoppers load their inventory and counters
+		// through the block-entity codec; the actual block owns its type.
 		be := snbtToValue(tag).(map[string]any)
+		if isHopperBlock(blk) {
+			// Replacing an existing hopper resets an omitted cooldown too.
+			if _, present := be["TransferCooldown"]; !present {
+				be["TransferCooldown"] = int32(-1)
+			}
+		}
 		name, _ := world.StateOwner(blk)
 		be["id"] = "minecraft:" + name
 		be["x"], be["y"], be["z"] = int32(x), int32(y), int32(z)
