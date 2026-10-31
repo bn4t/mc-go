@@ -46,7 +46,7 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 		return componentReply(commandError("argument.pos.unloaded"))
 	}
 	var baseHeight func(int32, int32, int) int32
-	var baseBlock func(int32, int32, int32) world.Block
+	var source worldgen.CommandStructureSource
 	if d.flat {
 		if d.name == dimOverworld {
 			preset := s.FlatPreset
@@ -54,14 +54,15 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 				preset = world.DefaultFlatPreset()
 			}
 			gen, _ := world.FlatGen(preset, d.minY)
-			baseBlock = func(x, y, z int32) world.Block { return gen(world.Pos{X: int(x), Y: int(y), Z: int(z)}) }
+			source.FlatBiome = d.biome
+			source.BaseBlock = func(x, y, z int32) world.Block { return gen(world.Pos{X: int(x), Y: int(y), Z: int(z)}) }
 		}
 		top := int32(d.flatTop)
 		baseHeight = func(int32, int32, int) int32 { return top }
 	} else if d.terrain != nil {
 		baseHeight = d.terrain.g.BaseHeight
 	}
-	plan, err := worldgen.PlanCommandStructure(s.jigsawRuntimeData(), s.worldSeed(), short, int32(position[0]>>4), int32(position[2]>>4), int32(d.minY), int32(d.height), int32(d.seaLevel), baseHeight, baseBlock)
+	plan, err := worldgen.PlanCommandStructure(s.jigsawRuntimeData(), s.worldSeed(), short, int32(position[0]>>4), int32(position[2]>>4), int32(d.minY), int32(d.height), int32(d.seaLevel), baseHeight, source)
 	if err != nil || plan == nil {
 		return componentReply(commandError("commands.place.structure.failed"))
 	}

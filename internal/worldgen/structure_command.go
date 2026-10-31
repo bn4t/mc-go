@@ -16,17 +16,26 @@ type CommandStructurePlan struct {
 // and afterPlace pass, the jungle temple's selector/trap pass and the
 // igloo's bundled-template top/laboratory pass and the shipwreck's
 // ocean/beached template pass, the ocean ruins' cold/warm template
-// passes, the flat-safe jungle/swamp/desert ruined-portal setups and the
+// passes, the jungle/swamp/desert ruined-portal setups, the ocean portal
+// with measured flat-generator biome context and the
 // nether fortress pieces are included.
-var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true, "igloo": true, "shipwreck": true, "shipwreck_beached": true, "ocean_ruin_cold": true, "ocean_ruin_warm": true, "ruined_portal_jungle": true, "ruined_portal_swamp": true, "fortress": true, "ruined_portal_desert": true}
+var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true, "igloo": true, "shipwreck": true, "shipwreck_beached": true, "ocean_ruin_cold": true, "ocean_ruin_warm": true, "ruined_portal_jungle": true, "ruined_portal_swamp": true, "fortress": true, "ruined_portal_desert": true, "ruined_portal_ocean": true}
+
+// CommandStructureSource supplies original flat-generator context, independently
+// of edited live chunks and their /fillbiome overrides. FlatBiome is constant
+// across the generator's noise-biome coordinates.
+type CommandStructureSource struct {
+	BaseBlock func(int32, int32, int32) world.Block
+	FlatBiome string
+}
 
 // PlanCommandStructure builds a command-placed structure start. The
 // generator stands in for the level's chunk generator: the caller supplies
 // its height and sea level, since the flat command world is not the noise
-// settings NewGenerator would otherwise use. Optional baseBlock supplies the
+// settings NewGenerator would otherwise use. Optional source supplies the
 // actual unmodified chunk-generator column (including air and fluids) for
-// structures that search beneath the heightmap surface.
-func PlanCommandStructure(data Data, seed int64, name string, cx, cz, minY, height, seaLevel int32, baseHeight func(int32, int32, int) int32, baseBlock ...func(int32, int32, int32) world.Block) (*CommandStructurePlan, error) {
+// structures that search beneath the heightmap surface, plus its flat biome.
+func PlanCommandStructure(data Data, seed int64, name string, cx, cz, minY, height, seaLevel int32, baseHeight func(int32, int32, int) int32, source ...CommandStructureSource) (*CommandStructurePlan, error) {
 	if !commandStructureNames[name] {
 		return nil, nil
 	}
@@ -36,8 +45,14 @@ func PlanCommandStructure(data Data, seed int64, name string, cx, cz, minY, heig
 	}
 	g.RS.SetLevelBounds(minY, height)
 	g.runtimeBaseHeight = baseHeight
-	if len(baseBlock) > 0 {
-		g.runtimeBaseBlock = baseBlock[0]
+	if len(source) > 0 {
+		g.runtimeBaseBlock = source[0].BaseBlock
+		g.runtimeFlatBiome = trimNS(source[0].FlatBiome)
+	}
+	// Ocean portals require measured flat-generator biome context. Preserve
+	// the previous unsupported result for other command-generator contexts.
+	if name == "ruined_portal_ocean" && g.runtimeFlatBiome == "" {
+		return nil, nil
 	}
 	g.runtimeSeaLevel, g.runtimeSeaSet = seaLevel, true
 	g.structureState()

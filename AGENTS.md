@@ -350,3 +350,7 @@ Entity-region tests must distinguish native zero-byte unused files from nonzero
 corruption, and unregistered passenger IDs from registered entities lacking
 serializers. Pin valid siblings, standalone opaque roots and the first selected
 write into a native empty file.
+
+Distinguish original generator inputs from edited live blocks/biomes in structure
+commands. Establish positive original and edited-biome witnesses before choosing
+a source callback; preserve natural-generation and unsupported-context behavior.

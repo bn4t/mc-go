@@ -1588,3 +1588,9 @@ shared dimension/reach gate, survival costs and creative exemptions. Ignition
 and swell direction have separate metadata accessors; unchanged default flags
 are omitted. This verifies ignition input and visibility, not complete fuse,
 explosion, charged-creeper or arbitrary item-component behavior.
+
+Explicit ocean ruined-portal commands support the flat overworld and use its
+original generator biome for coldness, independently of live /fillbiome edits.
+The command source carries original block strata and the flat biome explicitly.
+Noise-generator/non-overworld ocean commands and remaining portal variants stay
+unsupported; exact random spread counts remain outside the pin.

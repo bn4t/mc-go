@@ -7,7 +7,7 @@ import (
 
 func TestCommandDesertPortalPlacement(t *testing.T) {
 	gen, _ := world.FlatGen(&world.FlatPreset{Layers: []world.FlatLayer{{Block: "bedrock", Height: 1}, {Block: "stone", Height: 190}, {Block: "water", Height: 13}, {Block: "grass_block", Height: 1}}}, -64)
-	plan, err := PlanCommandStructure(Vanilla(), 1, "ruined_portal_desert", 0, 0, -64, 384, -63, func(int32, int32, int) int32 { return 141 }, func(x, y, z int32) world.Block { return gen(world.Pos{X: int(x), Y: int(y), Z: int(z)}) })
+	plan, err := PlanCommandStructure(Vanilla(), 1, "ruined_portal_desert", 0, 0, -64, 384, -63, func(int32, int32, int) int32 { return 141 }, CommandStructureSource{BaseBlock: func(x, y, z int32) world.Block { return gen(world.Pos{X: int(x), Y: int(y), Z: int(z)}) }})
 	if err != nil || plan == nil {
 		t.Fatal(err)
 	}

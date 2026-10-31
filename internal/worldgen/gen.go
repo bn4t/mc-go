@@ -37,6 +37,7 @@ type Generator struct {
 	runtimeTemplate   func(string) map[string]any
 	runtimeBaseHeight func(int32, int32, int) int32
 	runtimeBaseBlock  func(int32, int32, int32) world.Block
+	runtimeFlatBiome  string
 	runtimeSeaLevel   int32
 	runtimeSeaSet     bool
 }

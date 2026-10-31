@@ -152,7 +152,13 @@ func ruinedPortalFind(c *GenContext, setups []rpSetup) (*GenerationStub, bool) {
 		props := rpProps{mossiness: setup.mossiness, airPocket: air, overgrown: setup.overgrown, vines: setup.vines,
 			replaceBlackstone: setup.replaceWithBlackstone}
 		if setup.canBeCold {
-			b := g.Biomes.Biome(g.RS, nil, quartFromBlock(pos[0]), quartFromBlock(pos[1]), quartFromBlock(pos[2]))
+			// Native samples the chunk generator's biome source at the final
+			// origin's quart coordinates while building the pieces. Live
+			// /fillbiome edits do not change this generator-owned value.
+			b := g.runtimeFlatBiome
+			if b == "" {
+				b = g.Biomes.Biome(g.RS, nil, quartFromBlock(pos[0]), quartFromBlock(pos[1]), quartFromBlock(pos[2]))
+			}
 			props.cold = g.RS.BiomeInfo(b).ColdEnoughToSnow(pos[0], pos[1], pos[2], g.seaLevel())
 		}
 		p := &ruinedPortalPiece{tplPiece: newTplPiece("rupo", name, ruinedPortalSettings(g, rot, mir, setup.placement, pivot, props), pos, 0),
