@@ -367,3 +367,9 @@ no-test compilation is a build check, not behavioral proof. Bound runtime worker
 separately from native JVMs. When reclaiming compiler cache, hold both build slots
 and check that no compiler is active; preserve sources, patches, logs and explicit
 verification binaries. Cache eviction alone is not a source change.
+
+Distinguish dying state from physical removal in persistence checks. Preserve
+root/passenger topology and saved Health/DeathTime through actual damage, native
+save/read and cold restart; pin remaining countdown and no replayed callbacks.
+Startup game time can advance before corpse admission, so inspect independent
+corpse counters. Identify deliberately injected credit/session fields in guards.

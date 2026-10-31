@@ -46,7 +46,7 @@ func (s *Server) captureNativeEntitySelectionOwned(d *dimension) nativeEntitySel
 	groups := map[[2]int32][]map[string]any{}
 	for _, e := range s.entities.All() {
 		e := e
-		if e.Dim != d.name || e.Dying {
+		if e.Dim != d.name || !nativeEntityRootPresentForSave(&e) {
 			continue
 		}
 		name, ok := EntityTypeName(e.Type)
@@ -54,7 +54,7 @@ func (s *Server) captureNativeEntitySelectionOwned(d *dimension) nativeEntitySel
 			continue
 		}
 		if e.Riding != 0 && nativePassengerTreeEntity(&e) {
-			if parent, ok := s.entities.GetPtr(e.Riding); ok && parent.Dim == d.name && !parent.Dying && nativePassengerTreeEntity(parent) && nativePassengerListed(parent, e.ID) {
+			if parent, ok := s.entities.GetPtr(e.Riding); ok && parent.Dim == d.name && nativeEntityRootPresentForSave(parent) && nativePassengerTreeEntity(parent) && nativePassengerListed(parent, e.ID) {
 				continue
 			}
 		}
@@ -143,6 +143,7 @@ func (s *Server) restoreEntityRecordOwned(d *dimension, save map[string]any) *En
 		entity.UUID = uuid
 	}
 	s.applyEntitySave(entity, save)
+	restoreNativeLivingDeathSave(entity, save)
 	s.restoreNativePassengers(d, entity, save)
 	// Native pairing alone describes a newly loaded entity; the stored motion
 	// keeps its prior needsSync behavior without a duplicate metadata update.

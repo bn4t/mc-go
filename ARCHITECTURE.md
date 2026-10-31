@@ -1607,3 +1607,9 @@ Contact extinguishes independently of mob_griefing and preserves existing freeze
 and thaw behavior. Protection can deny melting while contact still extinguishes.
 Exact negative Fire counter normalization, other modes and swept/mixed-block
 paths remain separate; the verified extinguish condition is nonpositive Fire.
+
+Supported generic living corpses remain persistent until physical removal,
+including linked passengers and dying living parents with live riders. Loading
+restores saved Health/DeathTime without replaying death loot, XP or credit
+callbacks; remaining admitted corpse ticks continue to retirement. Dedicated
+dragon/nonliving paths, player death, animation and unloading remain separate.

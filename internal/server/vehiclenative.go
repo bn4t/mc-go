@@ -206,6 +206,7 @@ func (s *Server) restoreNativePassengers(d *dimension, parent *Entity, save map[
 				e.UUID = uuidFromInts(u)
 			}
 			s.applyEntitySave(e, child)
+			restoreNativeLivingDeathSave(e, child)
 			e.CartYawO = e.Yaw
 			e.dataSync = nil
 			e.MetaDirty = false
