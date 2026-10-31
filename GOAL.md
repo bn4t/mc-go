@@ -189,7 +189,9 @@ Mojang server over the wire.
       stand/cow ejection have measured pins. Dying bodies obstruct placement until
       actual removal. XP-orb escape overlap/direction, first-tick damping and standing
       scaled-player attraction have scoped native pins; general physical pushing
-      and broader orb trajectories remain incomplete.
+      and broader orb trajectories remain incomplete. Nonplayer scale refresh now
+      has next-frame box, collision-adjustment and exact movement-packet pins;
+      mounted attachment scaling and dynamic collision shapes remain partial.
 - [~] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
       damage, death and drop parity remains incomplete. Live XP-orb counters
@@ -20007,3 +20009,16 @@ Temurin25.0.5+8 and Go1.27.3.
 - **Limits** — This is a save-view canonicalization fix. It does not change fuse timing, explosion geometry, other partial-serializer fields or establish full restart persistence of ignited creepers.
 
 Final native/Go comparison PASS23.08s, all twelve named legs, exit0; five unit tests and build/default vet/tagged compilation exit0. Patch SHA256 `c3988cb3e789198295b636932a7644936bf9a96d8bdc195e787162c8599162d4`. Measured with Temurin25.0.5+8 and official26.2 runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`; Go1.27.3.
+
+
+## Slice — Admitted mob scale dimensions and collision adjustment (2026-10-31)
+
+- **Measured** — Frozen native controls separate effective scale, pending versus refreshed boxes, exact game steps and saved Pos from independent execute-at live-marker positions. On the next actual entity frame a NoAI/NoGravity horse growing fromscale1 to2 moves feet162→161.19999998807907 in air, stays162 above a solid floor, moves to160.79999995231628 below a ceiling and uses162.000001 in the constrained floor/ceiling fallback. Shrink preserves feet while narrowing its box; dimensions above4 suppress positional adjustment while still changing the box. A real NoAI vex scales its box without moving feet, and a separately admitted player retains its own frame policy. An explicitly injected public-method experiment isolates firstTick/noPhysics guards; it does not claim real construction/admission.
+- **Implemented** — Cache consumed nonplayer float scale and update modeled dimensions at the living callback before each existing tracker flush, outside NoAI. Use an independently written box-subtraction nearest-free-center solver against the existing static block-shape adapter. Open the normal sync gate for changed positions, preserving one tracker increment; do not force a PosDirty resend for an epsilon-only adjustment. No boat seat literals or rider VEHICLE offsets are rewritten.
+- **Pinned** — Exact e99b785 plus the separately frozen position-codec dependency: before packet/lifecycle FAIL30.08s/47.53s, normal exit1; fixed packet/lifecycle PASS32.46s/45.62s, normal exit0. The before tree has23 intended body position/bbox failures and misses3 exact tick1 movements. Strict packet controls retain all zero packets, require3 nonzero tick1 movements at two tracker ages plus the ceiling and require5 scale updates exactly once bytick1. Independent native runs vary scale arrival between the frozen write window and tick1, and vary within-frame order; raw arrays remain preserved. All15 focused normal/race groups pass, including the SyncCount7→7 pure refresh/one flush→8 sentinel, static boat/bounds/marker and player-scale regressions. Final build/defaultvet/tagged compilation pass. Nine-file artifact `ac415ebe3b66d57da59e93a54dfa848523d8b9919081d1f82199631724d6d1a1`, dependency `eebbaeea9b828c96b37e3eda9aea9e89014482f79024958e40779e0d04c78358` (parent1a30eb9).
+
+Official26.2 jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin25.0.5+8, Go1.27.3. Wire/public-method numeric facts and factual branch inspection inform independent implementation; no native body is copied. All15 owned/dependency source hashes match the tested immutable export and fresh archive application.
+
+Limits: Mounted attachment scaling, rider offsets, pose/baby/size refresh and complete collision geometry remain separate. The solver uses the current static empty-context shape adapter; dynamic/context-sensitive shapes and world-border refinements are not established by these controls. Attribute network-clock parity beyond the observed by-tick1 window is not claimed. Existing repeated passenger-seat tracking flushes remain outside this scale callback.
+
+Concrete follow-up: valid raw living summons omit `attributes:[{id:"minecraft:scale",base:2d}]` in the manual living summon reader. Native effective scale is2 and Go1; retained strict-v2.go/resize-before-v2.log and raw-attributes-followup.md document the exact red input/reader. This is a production hydration gap, not unsupported test setup; its fix is assigned separately.

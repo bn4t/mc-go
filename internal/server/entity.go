@@ -815,6 +815,9 @@ type Entity struct {
 	// of the next level tick; waypoint transmitters emit nothing to
 	// receivers while it holds (makeWaypointConnectionWith's gate).
 	firstTick bool
+	// mobCollisionScale is the float scale consumed by the living dimension refresh.
+	// Zero is the initial unscaled box until the first attribute callback.
+	mobCollisionScale float32
 	// AttrBase holds /attribute base-value overrides by attribute name;
 	// AttrMods holds modifiers as attr -> modifier id -> modifier.
 	AttrBase map[string]float64

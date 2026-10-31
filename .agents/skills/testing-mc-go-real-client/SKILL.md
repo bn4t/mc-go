@@ -505,3 +505,12 @@ contacted cell and an untouched neighbor independently. Measure multiple contact
 before assuming the first contact's extinguish effect changes later callbacks.
 Keep nonpositive Fire, its exact inactive counter and freeze timing as separate
 claims; full-state diagnostics need a positive receipt and sufficient packet size.
+
+## Dimension refresh and packet timing
+
+Compare effective scale, pending/refreshed hitboxes, saved position and an
+independent live-position witness. Capture through command and tick barriers;
+retain zero movement packets when checking exact frame timing. Native attribute
+arrival can vary between a frozen write and the next entity frame: retain raw
+arrays and normalize only observed variation, preserving values and counts.
+Keep raw summon hydration separate from command-driven scale changes.

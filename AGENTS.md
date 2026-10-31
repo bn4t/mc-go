@@ -384,3 +384,11 @@ Pin signed half ties and adjacent representable doubles; Go math.Round has a
 different negative-half convention. Establish equal physical positions before
 attributing a relative packet mismatch to quantization. Keep raw packet arrays
 when normalizing only independently observed native timing variability.
+
+For dimension callbacks, witness pending and refreshed collision boxes separately
+from effective attributes, saved Pos and independently observed live position.
+Keep resize before the existing tracker flush and pin its cadence; a second flush
+can shift packet phase. Retain zero movement packets in timing checks, and record
+raw arrays before normalizing independently measured native arrival variation.
+A valid raw summon that fails hydration is a separate production defect, not an
+unsupported fixture; preserve that red case when narrowing command-based probes.

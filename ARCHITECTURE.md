@@ -1372,7 +1372,8 @@ coordinates add the current executor's modeled eye offset; relative coordinates
 do not. Player eyes use cached effective scale and pose, including fixed sleeping
 and dying dimensions. Entity eyes use reproducible baseline/named-baby facts
 plus measured stand/slime variants. Runtime interaction dimensions, additional
-dynamic poses and nonplayer scale lifecycle remain partial.
+dynamic poses and full nonplayer dimension lifecycle remain partial. Measured
+nonplayer scale callbacks now refresh on living frames, as detailed below.
 
 
 Entity-tag queries require operator level2 and resolve targets in the
@@ -1639,3 +1640,10 @@ damage algorithms are unchanged; complete explosion/restart parity remains open.
 Live creeper Fuse edits expose their canonical signed-short value, including
 native defaults and numeric wrapping. Unknown-field carry-through preserves
 unrelated tags without overriding the modeled fuse or resetting elapsed time.
+
+Nonplayer scale remains pending until its actual living frame. The callback
+consumes float scale, preserves existing type, baby and armor-stand base policies,
+and adjusts grown physical boxes with a free-center search before the ordinary
+entity tracker flush. Scale affects physical dimensions independently of mounted
+saved-Pos conventions. Mounted attachment scaling, other dimension transitions,
+context-sensitive collision shapes and world-border refinements remain partial.

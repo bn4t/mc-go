@@ -5593,7 +5593,7 @@ func (s *Server) mobTickStep() {
 		// and its own navigation/goal travel is bypassed outright.
 		if e.Riding == 0 {
 			if w := s.dimWorld(e.Dim); w != nil && s.mobRiddenStep(e, w) {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 		}
@@ -5635,7 +5635,7 @@ func (s *Server) mobTickStep() {
 			// family's PanicGoal(3).
 			if ambName == "llama" || ambName == "trader_llama" {
 				if w := s.dimWorld(e.Dim); w != nil && s.llamaCaravanStep(e, w) {
-					s.mobSyncFlush(e)
+					s.mobSyncLivingFrame(e)
 					continue
 				}
 				// The mob-hunt targetSelector (llama→untamed wolf at 4,
@@ -5643,14 +5643,14 @@ func (s *Server) mobTickStep() {
 				// — its MOVE flag loses to a live caravan, so this arm
 				// only runs when the caravan link is off.
 				if w := s.dimWorld(e.Dim); w != nil && s.llamaHunterStep(e, w) {
-					s.mobSyncFlush(e)
+					s.mobSyncLivingFrame(e)
 					continue
 				}
 			}
 			// PanicGoal (priority 1) outranks every goal below —
 			// including sheep eat — while the panic run is live.
 			if s.mobPanicStep(e, ambName) {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			// SitWhenOrderedToGoal (priority 2 on wolf/cat/parrot).
@@ -5662,19 +5662,19 @@ func (s *Server) mobTickStep() {
 			// follows its owner and teleports past 12 blocks on the
 			// 10-tick recalc cadence.
 			if followOwnerTypes[ambName] && s.followOwnerStep(e, ambName) {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			// BreedGoal (priority 2-3): animals in love walk to their
 			// mate and breed on contact.
 			if s.mobBreedStep(e, ambName) {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			// CatRelaxOnOwnerGoal (priority 3) — a tamed cat lying on
 			// its sleeping owner's bed outranks tempt/follow.
 			if ambName == "cat" && s.catRelaxStep(e) {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			// FrogAi's IDLE RunOne keeps a running Croak: 60 ticks at
@@ -5683,19 +5683,19 @@ func (s *Server) mobTickStep() {
 			// tongue until it lapses.
 			if ambName == "frog" && e.Pose == 8 {
 				s.frogCroakStep(e)
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			// FrogAi's TONGUE activity (ShootTongue) — the frog yanks
 			// a FROG_FOOD cube mob in and eats it.
 			if ambName == "frog" && s.frogTongueStep(e) {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			// TemptGoal (priority 3-4) outranks eat/stroll: a player
 			// holding the mob's food pulls it to 2.5 blocks.
 			if s.mobTemptStep(e, ambName) {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			// BegGoal (priority 9, LOOK flag): the wolf raises
@@ -5712,13 +5712,13 @@ func (s *Server) mobTickStep() {
 			// FollowParentGoal (priority 4-5): babies trail the
 			// nearest same-type adult at 3-16 blocks.
 			if s.mobFollowParentStep(e, ambName) {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			// Sheep's EatBlockGoal (priority 5) — while the eat
 			// animation runs the sheep stands still.
 			if ambName == "sheep" && s.sheepEatTick(e, s.dims[e.Dim]) {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			// A passenger stays put — vanilla's entity rider has no
@@ -5779,7 +5779,7 @@ func (s *Server) mobTickStep() {
 				goalActed = s.mobMeleeStep(e)
 			}
 			if goalActed {
-				s.mobSyncFlush(e)
+				s.mobSyncLivingFrame(e)
 				continue
 			}
 			w := s.dimWorld(e.Dim)
@@ -5818,7 +5818,7 @@ func (s *Server) mobTickStep() {
 				s.mobTravelStep(e, w, 0)
 			}
 		}
-		s.mobSyncFlush(e)
+		s.mobSyncLivingFrame(e)
 	}
 	// Entity.tick's positionRider pass: every living vehicle welds
 	// its non-player passengers to the rotated PASSENGER attachment

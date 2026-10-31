@@ -313,6 +313,15 @@ func passengerAttach(veh *Entity) [3]float64 {
 // (babyDimsScale), and every other baby uses LivingEntity's ageScale
 // factor (adult·0.5).
 func entityBBDims(e *Entity) [2]float64 {
+	dims := entityBaseBBDims(e)
+	if scale := e.mobCollisionScale; scale != 0 && scale != 1 {
+		return [2]float64{float64(float32(dims[0]) * scale), float64(float32(dims[1]) * scale)}
+	}
+	return dims
+}
+
+// entityBaseBBDims retains the existing type, age and armor-stand policies.
+func entityBaseBBDims(e *Entity) [2]float64 {
 	b := mobBounds(e.Type)
 	if e.Type == mustEntityType("armor_stand") {
 		if e.ArmorStandMarker {
