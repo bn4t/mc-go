@@ -1605,8 +1605,9 @@ Burning survival players melt contacted powder snow, including measured two/four
 cell boundary overlaps, wherever normal world interaction permits destruction.
 Contact extinguishes independently of mob_griefing and preserves existing freeze
 and thaw behavior. Protection can deny melting while contact still extinguishes.
-Exact negative Fire counter normalization, other modes and swept/mixed-block
-paths remain separate; the verified extinguish condition is nonpositive Fire.
+Inactive player fire now settles to -20 after contact without changing the
+positive-to-zero clear operation or erasing increasing warmup counters.
+Early fire-block warmup, other modes and swept/mixed-block paths remain separate.
 
 Supported generic living corpses remain persistent until physical removal,
 including linked passengers and dying living parents with live riders. Loading

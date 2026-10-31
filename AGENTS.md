@@ -373,3 +373,8 @@ root/passenger topology and saved Health/DeathTime through actual damage, native
 save/read and cold restart; pin remaining countdown and no replayed callbacks.
 Startup game time can advance before corpse admission, so inspect independent
 corpse counters. Identify deliberately injected credit/session fields in guards.
+
+Separate an isolated clear/reset method from its later world-contact settlement.
+Retain positive and increasing-inactive counter controls; normalization must not
+erase progress toward ignition. Pace eventual-outcome probes by actual admitted
+frames, not by the number of read-only polls.

@@ -1603,6 +1603,7 @@ func (s *Server) playerInsideBlocks(sess *Session) {
 		return
 	}
 	x, y, z, _, _, _ := sess.Pos()
+	beforeFire := sess.fireTicks
 	s.playerPowderInside(sess, d, x, y, z)
 	lava := false
 	wet, burn := false, float32(0)
@@ -1650,6 +1651,7 @@ func (s *Server) playerInsideBlocks(sess *Session) {
 		sess.fireTicks = 0
 		s.broadcastSharedFlags(sess)
 	}
+	sess.fireTicks = settledPlayerFire(beforeFire, sess.fireTicks)
 }
 
 // broadcastAirSupply resends metadata index 1 (the air supply int) to
