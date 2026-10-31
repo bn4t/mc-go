@@ -520,3 +520,8 @@ and play_time in one function. Store later snapshots the same way, then read
 the stored scores outside the function: native function feedback can be silent.
 Keep actual sampled threshold brackets and separate movement-triggered effects
 from stationary admitted-frame exposure.
+
+For scaled mounts, bind passenger packets to observed spawn UUIDs and verify
+player pose. Snapshot saved Pos and independent live markers inside one function
+before callbacks, then observe admitted player/entity frames separately. Frozen
+world age alone does not establish the callback clock of a mounted vehicle.

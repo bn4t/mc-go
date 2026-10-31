@@ -37,8 +37,8 @@ inactive fire counters and stationary fire/soul-fire warmup have native
 comparisons; mixed hazards and swept paths remain partial. Creeper ignition, signed fuse/radius values and live fuse
 edits preserve measured packet and countdown behavior. Nonplayer scale changes
 refresh physical bounds on living frames, with measured collision adjustment and
-movement packets; mounted attachment scaling and broader collision contexts
-remain partial. Each claim is scoped to the cases recorded in GOAL.md.
+movement packets. Selected scaled living mounts have independent saved/live seat
+checks; broader attachment and collision contexts remain partial. Each claim is scoped to the cases recorded in GOAL.md.
 
 Recent measured coverage includes command-block execution and editors,
 command-minecart activator rails, structure-block save/load and redstone actions

@@ -152,7 +152,7 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 		yaw = veh.Yaw
 		pitch = veh.Pitch
 	}
-	sx, sy, sz := playerSeatPos(veh, sess.entityID.Load())
+	sx, sy, sz := playerSeatPos(veh, sess.entityID.Load(), sess.collisionScale)
 	sess.setPos(sx, sy, sz, yaw, pitch, og)
 	s.broadcastSetPassengers(veh)
 	s.fireStartedRiding(sess)
@@ -290,6 +290,27 @@ var passengerAttachVec = map[string][3]float64{
 // (babyDimsTable), with adult·0.5 as the approximation when the baby
 // dims were not measured.
 func passengerAttach(veh *Entity) [3]float64 {
+	point := passengerBaseAttach(veh)
+	scale := entityAttachmentScale(veh)
+	if scale != 1 {
+		for axis := range point {
+			point[axis] *= scale
+		}
+	}
+	return point
+}
+
+// entityAttachmentScale uses the dimension scale already consumed by a living
+// entity frame. Attachment coordinates stay doubles when the float is widened.
+func entityAttachmentScale(e *Entity) float64 {
+	if e == nil || !e.Living || e.mobCollisionScale == 0 {
+		return 1
+	}
+	return float64(e.mobCollisionScale)
+}
+
+// passengerBaseAttach preserves the existing type/age/class point policies.
+func passengerBaseAttach(veh *Entity) [3]float64 {
 	name, _ := EntityTypeName(veh.Type)
 	if veh.Baby {
 		if v, ok := babyPassAttachVec[name]; ok {
@@ -302,7 +323,7 @@ func passengerAttach(veh *Entity) [3]float64 {
 		if d, ok := babyDimsTable[name]; ok {
 			return [3]float64{0, d[1], 0}
 		}
-		return [3]float64{0, entityBBDims(veh)[1] * 0.5, 0}
+		return [3]float64{0, entityBaseBBDims(veh)[1] * 0.5, 0}
 	}
 	return passengerAttachAdult(name, veh.Type)
 }
@@ -423,7 +444,9 @@ var vehicleAttachY = map[string]float64{
 	"allay": -0.04, "vex": -0.04,
 	"bogged": 0.7, "drowned": 0.7, "husk": 0.7, "parched": 0.7,
 	"parrot": 0.7, "piglin": 0.7, "piglin_brute": 0.7,
-	"skeleton": 0.7, "stray": 0.7, "zombie": 0.7,
+	"skeleton": 0.7, "stray": 0.7,
+	// Adult zombie live-seat observations retain this widened float.
+	"zombie":          float64(float32(0.7)),
 	"zombie_villager": 0.7, "zombified_piglin": 0.7,
 	"end_crystal": 0.6, "evoker": 0.6, "illusioner": 0.6,
 	"pillager": 0.6, "vindicator": 0.6, "mannequin": 0.6,
@@ -447,6 +470,10 @@ var babyVehicleAttachY = map[string]float64{
 // attach for babyDimsScale types, else AT_FEET (0) for every
 // fresh-scalable baby dims.
 func riderVehicleAttachY(rider *Entity) float64 {
+	return riderVehicleBaseAttachY(rider) * entityAttachmentScale(rider)
+}
+
+func riderVehicleBaseAttachY(rider *Entity) float64 {
 	if rider == nil {
 		return 0.6
 	}
@@ -510,15 +537,19 @@ func boatSeatZ(veh *Entity, riderID int32, animal bool) float64 {
 
 // playerSeatPos is the session-rider half of passengerSeatPos: the
 // vehicle's pos + yaw-rotated PASSENGER attach (per-seat for boats)
-// minus the player's 0.6 VEHICLE attachment.
-func playerSeatPos(veh *Entity, pid int32) (float64, float64, float64) {
+// minus the player's cached-scale VEHICLE point (0.6 at scale one).
+func playerSeatPos(veh *Entity, pid int32, riderScale float32) (float64, float64, float64) {
 	att := passengerAttach(veh)
 	if name, ok := EntityTypeName(veh.Type); ok && isBoatEntityName(name) {
 		att[2] = boatSeatZ(veh, pid, false)
 	}
 	a := -float64(veh.Yaw) * math.Pi / 180
 	sn, cs := math.Sin(a), math.Cos(a)
-	return veh.X + (att[0]*cs + att[2]*sn), veh.Y + att[1] - 0.6, veh.Z + (att[2]*cs - att[0]*sn)
+	if riderScale == 0 {
+		riderScale = 1
+	}
+	vehiclePointY := 0.6 * float64(riderScale)
+	return veh.X + (att[0]*cs + att[2]*sn), veh.Y + att[1] - vehiclePointY, veh.Z + (att[2]*cs - att[0]*sn)
 }
 
 // passengerSeatY is the vehicle's PASSENGER attachment height: the
@@ -662,9 +693,9 @@ func (s *Server) rideTickStep(sess *Session) {
 	// attachment minus the rider's VEHICLE attachment (0.6 for a
 	// player — EntityType.PLAYER declares vehicleAttachment(0.6)).
 	// The PASSENGER point is the declared passengerAttachments offset
-	// or the AT_HEIGHT fallback (0, h/2, 0). Measured live: a
+	// or the existing type/instance fallback, with consumed scale. A
 	// minecart's declared 0.1875 puts the rider at vehY-0.4125.
-	sx, sy, sz := playerSeatPos(veh, sess.entityID.Load())
+	sx, sy, sz := playerSeatPos(veh, sess.entityID.Load(), sess.collisionScale)
 	ox, oy, oz, yaw, pitch, og := sess.Pos()
 	sess.setPos(sx, sy, sz, yaw, pitch, og)
 	s.rideMoveStats(sess, veh, sx-ox, sy-oy, sz-oz)

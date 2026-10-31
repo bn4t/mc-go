@@ -1672,3 +1672,12 @@ cooldowns remain. Native checks use explicit enabled states and default stack
 caps; redstone transitions, double-chest automation, other container families
 and automation restart behavior remain separate. Command biome zoom and hopper
 NBT through setblock have independent recorded gaps, outside this consumer fix.
+
+Living attachment scale follows consumed dimensions independently of raw
+attribute values. Passenger vectors and vertical rider points retain double
+coordinate arithmetic after widening the float scale; player seats use the
+existing player-frame scale cache. Chicken/player, horse/player and nested
+chicken/adult-zombie/player controls pin default, half and double scale. Live
+seats remain separate from direct-vehicle X/Z in serialized Pos. Other class,
+baby, pose and seat policies, nonzero yaw and frozen-vehicle ticking remain
+partial. The ordinary boat saved/live-position regression remains pinned.

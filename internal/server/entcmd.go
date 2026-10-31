@@ -343,7 +343,7 @@ func (s *Server) runRideMount(sender *Session, rider *dataEntity, vehTok string)
 		_, _, _, yaw, pitch, _ := rider.sess.Pos()
 		// Seat at mount like positionRider does — rideTickStep measures
 		// ride stats from the seat, not the pre-mount position.
-		sx, sy, sz := playerSeatPos(vehEnt, rider.sess.entityID.Load())
+		sx, sy, sz := playerSeatPos(vehEnt, rider.sess.entityID.Load(), rider.sess.collisionScale)
 		s.teleportPlayerRot(rider.sess.getName(), sx, sy, sz, yaw, pitch)
 	}
 	s.broadcastSetPassengers(vehEnt)

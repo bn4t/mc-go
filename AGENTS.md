@@ -411,3 +411,9 @@ block state before stepping. Keep command ingress separate from transfer logic;
 if the setup route is defective, preserve its own red case and rerun unchanged
 production with the corrected fixture. Use player-free controls and a positive
 fresh-menu advancement alongside absence of credit after automated unpacking.
+
+Scaled attachment coordinates can retain double arithmetic even when dimensions
+and scale are floats. Measure the live point before changing legacy constants;
+do not cast every attachment to float32. Bind ordered passenger IDs to saved
+UUIDs, and retain atomic pre-callback positions alongside admitted-frame seats.
+A frozen world clock does not prove that a player-mounted vehicle did not tick.
