@@ -62,7 +62,7 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 		baseHeight = func(int32, int32, int) int32 { return top }
 	} else if d.terrain != nil {
 		baseHeight = d.terrain.g.BaseHeight
-		if short == "ruined_portal_ocean" && d.name == dimOverworld && s.LevelType == LevelTypeNormal {
+		if (short == "ruined_portal_ocean" || short == "ruined_portal") && d.name == dimOverworld && s.LevelType == LevelTypeNormal {
 			// Normal terrain uses the same overworld noise/biome settings as
 			// the detached planner. Read its actual seed, including zero;
 			// worldSeed's fixed flat fallback does not describe this source.

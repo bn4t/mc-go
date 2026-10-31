@@ -449,3 +449,10 @@ lower in an unconditional debris drip. Preserve the failed geometry assertions;
 when generator decoration differs, measure and pin an explicit matching live
 column on both servers and scope the proof to that input. Do not claim untouched
 whole-terrain parity from a controlled canopy fixture.
+
+A stored zero is not a count receipt when the underlying command can fail.
+Keep fill/clone/blocks comparison volumes below their limits, require admitted
+success-or-empty replies for every count band, and sum exact results. Preserve
+oversized-volume or premature-readiness attempts as invalid fixture evidence,
+not production RED or native output variation. Freeze corrected source and
+expectations together before unchanged-baseline and candidate comparisons.

@@ -19,8 +19,9 @@ type CommandStructurePlan struct {
 // ocean/beached template pass, the ocean ruins' cold/warm template
 // passes, the jungle/swamp/desert ruined-portal setups, the ocean portal
 // with measured flat/normal-overworld generator context and the
+// standard portal's measured normal-overworld surface setup, and the
 // nether fortress pieces are included.
-var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true, "igloo": true, "shipwreck": true, "shipwreck_beached": true, "ocean_ruin_cold": true, "ocean_ruin_warm": true, "ruined_portal_jungle": true, "ruined_portal_swamp": true, "fortress": true, "ruined_portal_desert": true, "ruined_portal_ocean": true}
+var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true, "igloo": true, "shipwreck": true, "shipwreck_beached": true, "ocean_ruin_cold": true, "ocean_ruin_warm": true, "ruined_portal_jungle": true, "ruined_portal_swamp": true, "fortress": true, "ruined_portal_desert": true, "ruined_portal_ocean": true, "ruined_portal": true}
 
 // CommandStructureSource identifies the original chunk generator independently
 // of edited live chunks and their /fillbiome overrides. FlatBiome is constant
@@ -58,6 +59,9 @@ func PlanCommandStructure(data Data, seed int64, name string, cx, cz, minY, heig
 	if name == "ruined_portal_ocean" && g.runtimeFlatBiome == "" && !matchedNormal {
 		return nil, nil
 	}
+	if name == "ruined_portal" && !matchedNormal {
+		return nil, nil
+	}
 	g.runtimeSeaLevel, g.runtimeSeaSet = seaLevel, true
 	g.structureState()
 	definition := g.structure(name)
@@ -76,7 +80,17 @@ func PlanCommandStructure(data Data, seed int64, name string, cx, cz, minY, heig
 	if len(start.Pieces) == 0 {
 		return nil, nil
 	}
-	return &CommandStructurePlan{generator: g, start: start, lazyWG: name == "ruined_portal_ocean" && matchedNormal}, nil
+	// Preserve the selected setup and its random draws. Underground commands
+	// have not been measured; never resample them into the supported route.
+	if name == "ruined_portal" {
+		for _, piece := range start.Pieces {
+			portal, ok := piece.(*ruinedPortalPiece)
+			if !ok || portal.placement != rpOnLandSurface {
+				return nil, nil
+			}
+		}
+	}
+	return &CommandStructurePlan{generator: g, start: start, lazyWG: (name == "ruined_portal_ocean" || name == "ruined_portal") && matchedNormal}, nil
 }
 
 func (p *CommandStructurePlan) Bounds() BoundingBox { return p.start.BoundingBox() }
