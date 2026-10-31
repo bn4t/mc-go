@@ -335,14 +335,16 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 			r := textReply("Usage: /execute if biome <x> <y> <z> <biome>")
 			return 0, false, 0, false, &r
 		}
+		pos, berr := s.executeBiomeBlockPosition(ctx, args, bx, by, bz, tokBase)
+		if berr != nil {
+			return 0, false, 0, false, berr
+		}
 		if ctx.alive && ctx.dim != nil {
 			name := args[4]
 			if !strings.Contains(name, ":") {
 				name = "minecraft:" + name
 			}
-			if x, y, z, berr := blockPosArgs(args, bx, by, bz, tokBase); berr == nil {
-				cond = s.spawnBiomeAt(ctx.dim, world.Pos{X: x, Y: y, Z: z}) == name
-			}
+			cond = s.spawnBiomeAt(ctx.dim, pos) == name
 		}
 		return 5, cond, 0, false, nil
 	case "predicate":
@@ -381,6 +383,60 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 		r := errToken("command.unknown.argument", tokBase)
 		return 0, false, 0, false, &r
 	}
+}
+
+// executeBiomeBlockPosition keeps ordinary block coordinates on the integer
+// parser, and resolves a local triple in the exact source frame before flooring.
+func (s *Server) executeBiomeBlockPosition(ctx *executeContext, args []string, bx, by, bz, tokBase int) (world.Pos, *reply) {
+	local := false
+	for k := 1; k < len(args) && k <= 3; k++ {
+		local = local || strings.HasPrefix(args[k], "^")
+	}
+	if !local {
+		x, y, z, r := blockPosArgs(args, bx, by, bz, tokBase)
+		return world.Pos{X: x, Y: y, Z: z}, r
+	}
+	for k := 1; k <= 3; k++ {
+		if k >= len(args) {
+			r := errToken("parsing.double.expected", tokBase+k)
+			return world.Pos{}, &r
+		}
+		if !strings.HasPrefix(args[k], "^") {
+			r := errToken("argument.pos.mixed", tokBase+k)
+			return world.Pos{}, &r
+		}
+		// Local block coordinates accept ordinary decimal spellings only.
+		// Keep Go's nonfinite, exponent and leading-plus extensions out.
+		number := args[k][1:]
+		end := 0
+		for end < len(number) && (number[end] >= '0' && number[end] <= '9' || number[end] == '-' || number[end] == '.') {
+			end++
+		}
+		if end == 0 && number != "" {
+			r := errToken("parsing.double.expected", tokBase+k)
+			return world.Pos{}, &r
+		}
+		if end > 0 {
+			if _, err := strconv.ParseFloat(number[:end], 64); err != nil {
+				r := errToken("parsing.double.invalid", tokBase+k, number[:end])
+				return world.Pos{}, &r
+			}
+			if end != len(number) {
+				key := "argument.pos3d.incomplete"
+				if k == 3 {
+					key = "command.expected.separator"
+				}
+				r := errToken(key, tokBase+k)
+				return world.Pos{}, &r
+			}
+		}
+	}
+	origin := ctx.pos
+	if ctx.anchorEyes {
+		origin[1] += s.commandSourceEyeHeight(ctx.ent)
+	}
+	x, y, z := tpResolveSourceCoords(args[1:4], origin[0], origin[1], origin[2], ctx.rotation)
+	return world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}, nil
 }
 
 // blockPosArgs reads one int blockpos (three tokens, ~ allowed) out of
