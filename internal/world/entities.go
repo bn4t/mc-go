@@ -28,32 +28,15 @@ func SaveEntityRegions(dir string, ents map[[2]int32][]map[string]any) error {
 		if len(list) == 0 {
 			continue
 		}
-		items := make([]any, 0, len(list))
-		for _, m := range list {
-			items = append(items, m)
-		}
-		root := map[string]any{
-			"Position":    []int32{c[0], c[1]},
-			"DataVersion": int32(DataVersion26_2),
-			"Entities":    nbt.List{Elem: nbt.TagCompound, Items: items},
-		}
-		var raw bytes.Buffer
-		if err := nbt.WriteNamed(&raw, "", root); err != nil {
-			return err
-		}
-		var zc bytes.Buffer
-		zw := zlib.NewWriter(&zc)
-		if _, err := zw.Write(raw.Bytes()); err != nil {
-			return err
-		}
-		if err := zw.Close(); err != nil {
+		payload, err := encodeEntityChunk(c, list)
+		if err != nil {
 			return err
 		}
 		r := chunkKey{c[0] >> 5, c[1] >> 5}
 		if byRegion[r] == nil {
 			byRegion[r] = map[chunkKey][]byte{}
 		}
-		byRegion[r][chunkKey{c[0], c[1]}] = zc.Bytes()
+		byRegion[r][chunkKey{c[0], c[1]}] = payload
 	}
 	for r, payloads := range byRegion {
 		data := encodeRegion(payloads)
@@ -75,34 +58,38 @@ func SaveEntityRegions(dir string, ents map[[2]int32][]map[string]any) error {
 // under dir/entities/. A missing directory is an empty list, not an
 // error — a world vanilla never saved entities for loads as none.
 func LoadEntityRegions(dir string) ([]map[string]any, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "entities", "r.*.*.mca"))
+	chunks, err := LoadEntityRegionChunks(dir)
 	if err != nil {
 		return nil, err
 	}
 	var out []map[string]any
-	for _, f := range files {
-		fi, err := os.Stat(f)
-		if err != nil {
-			return nil, err
-		}
-		if fi.Size() < 2*regionSectors {
-			continue
-		}
-		chunks, err := readRegionFile(f)
-		if err != nil {
-			return nil, err
-		}
-		for _, compound := range chunks {
-			list, ok := compound["Entities"].(nbt.List)
-			if !ok {
-				continue
-			}
-			for _, it := range list.Items {
-				if m, ok := it.(map[string]any); ok {
-					out = append(out, m)
-				}
-			}
-		}
+	for _, list := range chunks {
+		out = append(out, list...)
 	}
 	return out, nil
+}
+
+func encodeEntityChunk(c [2]int32, list []map[string]any) ([]byte, error) {
+	items := make([]any, 0, len(list))
+	for _, m := range list {
+		items = append(items, m)
+	}
+	root := map[string]any{
+		"Position":    []int32{c[0], c[1]},
+		"DataVersion": int32(DataVersion26_2),
+		"Entities":    nbt.List{Elem: nbt.TagCompound, Items: items},
+	}
+	var raw bytes.Buffer
+	if err := nbt.WriteNamed(&raw, "", root); err != nil {
+		return nil, err
+	}
+	var zc bytes.Buffer
+	zw := zlib.NewWriter(&zc)
+	if _, err := zw.Write(raw.Bytes()); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return zc.Bytes(), nil
 }

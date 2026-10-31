@@ -248,7 +248,7 @@ func prepareCommandMinecartMetadata(e *Entity) {
 	e.MetaDirty = false
 }
 
-func (s *Server) restoreCommandMinecart(d *dimension, save map[string]any, pos [3]float64, uuid [16]byte) {
+func (s *Server) restoreCommandMinecart(d *dimension, save map[string]any, pos [3]float64, uuid [16]byte) *Entity {
 	e := s.entities.Spawn(&Entity{Type: mustEntityType("command_block_minecart"), Dim: d.name, X: pos[0], Y: pos[1], Z: pos[2]})
 	if uuid != [16]byte{} {
 		e.UUID = uuid
@@ -261,6 +261,7 @@ func (s *Server) restoreCommandMinecart(d *dimension, save map[string]any, pos [
 	e.MetaDirty = false
 	e.commandCart.commandDirty = false
 	e.commandCart.outputDirty = false
+	return e
 }
 
 func (s *Server) commandMinecartActivate(e *Entity) {

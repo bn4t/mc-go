@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"path/filepath"
 	"strings"
@@ -12,9 +13,11 @@ import (
 // nativeWorldSaveJob is published before capture. Closing done publishes both
 // error fields; its worker never reads live gameplay state or acquires ownership.
 type nativeWorldSaveJob struct {
-	done      chan struct{}
-	err       error
-	playerErr error
+	done                    chan struct{}
+	err                     error
+	playerErr               error
+	entityOwnership         map[string]nativeEntityOwnership
+	entityOwnershipRecorded bool
 }
 
 type nativeDimensionSave struct {
@@ -34,9 +37,14 @@ type nativeWorldSaveSnapshot struct {
 	dimensions      []nativeDimensionSave
 	players         map[[16]byte]playerPersist
 	playerErr       error
+	captureErr      error
+	entityOwnership map[string]nativeEntityOwnership
 }
 
 func (snapshot *nativeWorldSaveSnapshot) write() error {
+	if snapshot.captureErr != nil {
+		return snapshot.captureErr
+	}
 	if err := world.WriteLevel(snapshot.level); err != nil {
 		return err
 	}
@@ -49,7 +57,7 @@ func (snapshot *nativeWorldSaveSnapshot) write() error {
 		if err := d.chunks.Write(snapshot.level.Dir, d.name); err != nil {
 			return err
 		}
-		if err := world.SaveEntityRegions(world.DimensionDir(snapshot.level.Dir, d.name), d.entities); err != nil {
+		if err := world.MergeEntityRegions(world.DimensionDir(snapshot.level.Dir, d.name), d.entities); err != nil {
 			return err
 		}
 		if d.fight != nil {
@@ -75,6 +83,12 @@ func (snapshot *nativeWorldSaveSnapshot) write() error {
 }
 
 func (s *Server) recordNativeSaveOwned(job *nativeWorldSaveJob) {
+	if job != nil && !job.entityOwnershipRecorded {
+		if job.err == nil {
+			s.completeNativeEntityWritesOwned(job.entityOwnership)
+		}
+		job.entityOwnershipRecorded = true
+	}
 	if job != nil && job.playerErr != nil && s.dataSaveErr == nil {
 		s.dataSaveErr = job.playerErr
 	}
@@ -115,6 +129,10 @@ func (s *Server) startNativeWorldSaveOwned() (*nativeWorldSaveJob, error) {
 	job := &nativeWorldSaveJob{done: make(chan struct{})}
 	s.nativeSave = job
 	snapshot := s.captureNativeWorldSaveOwned()
+	job.entityOwnership = snapshot.entityOwnership
+	if snapshot.captureErr == nil {
+		s.beginNativeEntityWritesOwned(job.entityOwnership)
+	}
 	write := s.nativeSaveWrite
 	if write == nil {
 		write = func(snapshot *nativeWorldSaveSnapshot) error { return snapshot.write() }
@@ -147,8 +165,14 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 		GenerateStructures: s.GenerateStructures, Generator: s.LevelType, Flat: s.FlatPreset, GameTime: s.gameTime(), DayTime: s.dayTime(),
 		Spawn: [3]int{floor(sx), floor(sy), floor(sz)}, GameRules: rules,
 	}}
+	snapshot.entityOwnership = map[string]nativeEntityOwnership{}
 	scheduledTicks := s.captureScheduledChunkTicksOwned()
 	for name, d := range s.dims {
+		selection := s.captureNativeEntitySelectionOwned(d)
+		if selection.err != nil && snapshot.captureErr == nil {
+			snapshot.captureErr = fmt.Errorf("entity regions %s: %w", name, selection.err)
+		}
+		snapshot.entityOwnership[name] = selection.ownership
 		chunks := d.w.CaptureDimensionSaveWithTicks(d.minY, d.height,
 			func(cx, cz int) []map[string]any { return s.chunkBlockEntities(d, cx, cz) },
 			func(cx, cz int) *world.ChunkLight { return d.savedLight(cx, cz) },
@@ -158,7 +182,7 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 			fight = d.fight.saveNBT()
 		}
 		snapshot.dimensions = append(snapshot.dimensions, nativeDimensionSave{
-			name: name, chunks: chunks, entities: s.captureEntityRegionsOwned(d), fight: fight,
+			name: name, chunks: chunks, entities: selection.rows, fight: fight,
 		})
 	}
 	snapshot.scheduledEvents = s.captureFunctionSchedule()

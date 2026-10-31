@@ -1540,3 +1540,16 @@ An explicitly present black dyed color is distinct from absence. ItemStack keeps
 existing nonzero representations and uses DyedColorZero for present RGB zero.
 Effective presence participates in stacking, JSON, native/Jukebox persistence,
 slot codecs and dye recipes, so black contributes to subsequent color mixing.
+
+
+Native entity persistence owns physical source slots after supported hydration.
+Saves select previous, current and unsettled submission slots; successful IO
+advances ownership. Unsupported roots and passenger composites remain opaque
+and unhydrated, including cloud, experience-orb and marker roots. Physical slots
+establish replacement authority independently of declared NBT Position. Failed
+loads block writes, and partial writes retain their footprint for the next save.
+Unselected compressed records and timestamps survive unchanged. Writes remain
+nontransactional across files and provide no fsync guarantee. Gzip/external
+entity reads remain unsupported and block saves; replacement of an external
+record can orphan its sidefile. Export without loading grants no authority over
+preexisting roots. This does not implement runtime entity unloading.

@@ -242,7 +242,9 @@ func (s *Server) loadWorldDir() error {
 	s.restoreBlockEntities()
 	s.restoreScheduledChunkTicks()
 	for _, d := range s.dims {
-		s.restoreEntities(d)
+		if err := s.restoreEntities(d); err != nil {
+			return err
+		}
 	}
 	if err := s.loadPlayerFiles(); err != nil {
 		return err

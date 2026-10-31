@@ -341,7 +341,7 @@ func dragonSaveFields(e *Entity, m map[string]any) {
 }
 
 // restoreEnderDragon respawns a saved dragon.
-func (s *Server) restoreEnderDragon(d *dimension, save map[string]any, pos [3]float64) {
+func (s *Server) restoreEnderDragon(d *dimension, save map[string]any, pos [3]float64) *Entity {
 	e := s.newEnderDragon(d, pos[0], pos[1], pos[2])
 	applyDragonSave(e, save)
 	e.dragon.phaseSent = e.dragon.phase
@@ -352,6 +352,7 @@ func (s *Server) restoreEnderDragon(d *dimension, save map[string]any, pos [3]fl
 	}
 	e.ensureMetaInit()
 	e.metaSent.health = e.Health
+	return e
 }
 
 // encodeDragonPhaseEntry writes DATA_PHASE.

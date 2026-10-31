@@ -404,7 +404,7 @@ func crystalSaveFields(e *Entity, m map[string]any) {
 }
 
 // restoreEndCrystal respawns a saved crystal compound.
-func (s *Server) restoreEndCrystal(d *dimension, save map[string]any, pos [3]float64) {
+func (s *Server) restoreEndCrystal(d *dimension, save map[string]any, pos [3]float64) *Entity {
 	e := newEndCrystal(d.name, pos[0], pos[1], pos[2])
 	applyCrystalSave(e, save, false)
 	e.crystal.sentBeam, e.crystal.sentShow = e.crystal.beam, e.crystal.showBottom
@@ -412,6 +412,7 @@ func (s *Server) restoreEndCrystal(d *dimension, save map[string]any, pos [3]flo
 		e.ExtraNBT = map[string]any{"Tags": ex}
 	}
 	s.entities.Spawn(e)
+	return e
 }
 
 // spawnGenEntities adds the entities a provided generated chunk carried

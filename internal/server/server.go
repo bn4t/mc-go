@@ -222,7 +222,9 @@ type Server struct {
 	dataSaveWrite func(path string, snapshot *serverDataSnapshot) error
 	// Native snapshots follow the same single-job owner admission. Disconnect
 	// player writes join this receipt before touching the same native files.
-	nativeSave *nativeWorldSaveJob
+	nativeSave             *nativeWorldSaveJob
+	nativeEntityRegions    map[string]*nativeEntityRegionState
+	nativeEntityGeneration uint64
 	// Native region writers share an owner-submitted FIFO, including selective
 	// retirement writes. A subset receipt never substitutes for nativeSave.
 	nativeWriteTail       <-chan struct{}

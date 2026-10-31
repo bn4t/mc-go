@@ -337,3 +337,11 @@ On this shared four-core workspace, limit new compilations to two build slots
 vet or test-binary compilation, then release it before executing tests or waiting
 for an oracle slot. Compile blackbox binaries before taking the JVM lock; CPU
 contention during startup can consume the harness readiness budget.
+
+
+Entity persistence changes must pin supported deletion/movement alongside opaque
+roots and passenger composites. Check serializer capability before hydration;
+preserve failed submission footprints and reject stale load receipts. Verify
+unselected compressed payloads/timestamps and physical source-slot authority.
+Run socket-dependent regression tests with local networking enabled. Execute
+precompiled test binaries from their package directory so relative fixtures resolve.

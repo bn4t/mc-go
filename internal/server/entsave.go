@@ -21,11 +21,25 @@ import (
 
 // saveEntityRegions writes dir/entities for one dimension.
 func (s *Server) saveEntityRegions(d *dimension) error {
-	return world.SaveEntityRegions(world.DimensionDir(s.WorldDir, d.name), s.captureEntityRegionsOwned(d))
+	selection := s.captureNativeEntitySelectionOwned(d)
+	if selection.err != nil {
+		return selection.err
+	}
+	receipts := map[string]nativeEntityOwnership{d.name: selection.ownership}
+	s.beginNativeEntityWritesOwned(receipts)
+	if err := world.MergeEntityRegions(world.DimensionDir(s.WorldDir, d.name), selection.rows); err != nil {
+		return err
+	}
+	s.completeNativeEntityWritesOwned(receipts)
+	return nil
 }
 
 // captureEntityRegionsOwned renders private NBT values while entity state is owned.
 func (s *Server) captureEntityRegionsOwned(d *dimension) map[[2]int32][]map[string]any {
+	return s.captureNativeEntitySelectionOwned(d).rows
+}
+
+func (s *Server) captureNativeEntitySelectionOwned(d *dimension) nativeEntitySelection {
 	// Active-effect deadlines use the local simulation counter; world-age
 	// base must not be subtracted from their saved remaining durations.
 	now := s.clock.count
@@ -36,7 +50,7 @@ func (s *Server) captureEntityRegionsOwned(d *dimension) map[[2]int32][]map[stri
 			continue
 		}
 		name, ok := EntityTypeName(e.Type)
-		if !ok || (!e.Living && name != "item" && name != "end_crystal" && name != "command_block_minecart" && !ordinaryVehicle(name)) {
+		if !ok || !nativeEntityRootSaveable(&e) {
 			continue
 		}
 		if e.Riding != 0 && nativePassengerTreeEntity(&e) {
@@ -52,84 +66,87 @@ func (s *Server) captureEntityRegionsOwned(d *dimension) map[[2]int32][]map[stri
 		c := [2]int32{int32(math.Floor(e.X)) >> 4, int32(math.Floor(e.Z)) >> 4}
 		groups[c] = append(groups[c], cloneNativeNBT(m).(map[string]any))
 	}
-	return groups
+	return s.selectNativeEntityRecordsOwned(d.name, groups)
 }
 
 // restoreEntities respawns one dimension's saved entity compounds.
 // It runs once at boot, after the dimension's chunks load.
-func (s *Server) restoreEntities(d *dimension) {
-	ents, err := world.LoadEntityRegions(world.DimensionDir(s.WorldDir, d.name))
+func (s *Server) restoreEntities(d *dimension) error {
+	chunks, err := world.LoadEntityRegionChunks(world.DimensionDir(s.WorldDir, d.name))
+	state := s.newNativeEntityRegionStateOwned(d.name)
+	state.observed, state.loadErr = true, err
 	if err != nil {
-		return
+		return err
 	}
-	for _, save := range ents {
-		idStr, _ := save["id"].(string)
-		name := strings.TrimPrefix(idStr, "minecraft:")
-		pos, ok := nbtVec3(save["Pos"])
-		if !ok {
-			continue
-		}
-		var uuid [16]byte
-		if u, ok := save["UUID"].([]int32); ok && len(u) == 4 {
-			for i, v := range u {
-				uuid[i*4] = byte(v >> 24)
-				uuid[i*4+1] = byte(v >> 16)
-				uuid[i*4+2] = byte(v >> 8)
-				uuid[i*4+3] = byte(v)
+	for chunk, rows := range chunks {
+		for _, save := range rows {
+			original := cloneNativeNBT(save).(map[string]any)
+			var entity *Entity
+			if nativeEntityRootNameRestorable(save) && nativeEntityCompositeRestorable(save) {
+				entity = s.restoreEntityRecordOwned(d, save)
+			}
+			if nativeEntityRootSaveable(entity) {
+				state.owned[chunk] = true
+			} else {
+				state.opaque[chunk] = append(state.opaque[chunk], original)
 			}
 		}
-		if name == "end_crystal" {
-			s.restoreEndCrystal(d, save, pos)
-			continue
-		}
-		if name == "ender_dragon" {
-			s.restoreEnderDragon(d, save, pos)
-			continue
-		}
-		if name == "command_block_minecart" {
-			s.restoreCommandMinecart(d, save, pos, uuid)
-			continue
-		}
-		if ordinaryVehicle(name) {
-			s.restoreVehicleNative(d, name, save, pos, uuid)
-			continue
-		}
-		if name == "item" {
-			stack := ItemStack{}
-			if it, ok := save["Item"].(map[string]any); ok {
-				stack = itemFromNBT(it)
-			}
-			if stack.Empty() {
-				continue
-			}
-			e := s.entities.Spawn(&Entity{
-				Type: mustEntityType("item"),
-				Dim:  d.name,
-				X:    pos[0], Y: pos[1], Z: pos[2],
-				Item: stack,
-			})
-			e.ItemHP = int32(itemSavedShort(save["Health"], 5))
-			applyItemTouchSave(e, save)
-			if mot, ok := nbtVec3(save["Motion"]); ok {
-				e.MotionX, e.MotionY, e.MotionZ = mot[0], mot[1], mot[2]
-			}
-			e.UUID = uuid
-			continue
-		}
-		e, ok := s.summonMobRaw(d, name, pos[0], pos[1], pos[2], false, false)
-		if !ok {
-			continue
-		}
-		if uuid != [16]byte{} {
-			e.UUID = uuid
-		}
-		s.applyEntitySave(e, save)
-		s.restoreNativePassengers(d, e, save)
-		// The merge left a dirty pack queued as if a /data edit had
-		// landed; a loaded entity has no prior client state, so the
-		// tracker-attach burst alone describes it. PosDirty survives:
-		// Entity.load's needsSync re-emits stored Motion once.
-		e.dataSync = nil
-		e.MetaDirty = false
 	}
+	return nil
+}
+
+func (s *Server) restoreEntityRecordOwned(d *dimension, save map[string]any) *Entity {
+	idStr, _ := save["id"].(string)
+	name := strings.TrimPrefix(idStr, "minecraft:")
+	pos, ok := nbtVec3(save["Pos"])
+	if !ok {
+		return nil
+	}
+	var uuid [16]byte
+	if u, ok := save["UUID"].([]int32); ok && len(u) == 4 {
+		uuid = uuidFromInts(u)
+	}
+	if name == "end_crystal" {
+		return s.restoreEndCrystal(d, save, pos)
+	}
+	if name == "ender_dragon" {
+		return s.restoreEnderDragon(d, save, pos)
+	}
+	if name == "command_block_minecart" {
+		return s.restoreCommandMinecart(d, save, pos, uuid)
+	}
+	if ordinaryVehicle(name) {
+		return s.restoreVehicleNative(d, name, save, pos, uuid)
+	}
+	if name == "item" {
+		stack := ItemStack{}
+		if item, ok := save["Item"].(map[string]any); ok {
+			stack = itemFromNBT(item)
+		}
+		if stack.Empty() {
+			return nil
+		}
+		entity := s.entities.Spawn(&Entity{Type: mustEntityType("item"), Dim: d.name, X: pos[0], Y: pos[1], Z: pos[2], Item: stack})
+		entity.ItemHP = int32(itemSavedShort(save["Health"], 5))
+		applyItemTouchSave(entity, save)
+		if motion, ok := nbtVec3(save["Motion"]); ok {
+			entity.MotionX, entity.MotionY, entity.MotionZ = motion[0], motion[1], motion[2]
+		}
+		entity.UUID = uuid
+		return entity
+	}
+	entity, ok := s.summonMobRaw(d, name, pos[0], pos[1], pos[2], false, false)
+	if !ok {
+		return nil
+	}
+	if uuid != [16]byte{} {
+		entity.UUID = uuid
+	}
+	s.applyEntitySave(entity, save)
+	s.restoreNativePassengers(d, entity, save)
+	// Native pairing alone describes a newly loaded entity; the stored motion
+	// keeps its prior needsSync behavior without a duplicate metadata update.
+	entity.dataSync = nil
+	entity.MetaDirty = false
+	return entity
 }
