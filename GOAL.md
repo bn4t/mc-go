@@ -19936,3 +19936,22 @@ Temurin25.0.5+8 and Go1.27.3.
 - **Pinned:** Expanded strict TestPlayerBurningPowderMeltParity native+Go PASS22.65s (native6.94s, Go7.14s) with exact per-cell two/four overlap assertions and post-window Pos receipts, after before native-PASS/Go-FAIL baseline. New melt/nonburn/denied-interaction and existing frame/wearable/cached-bounds units PASS; build and default vet PASS. Existing TestFrozenPlayerPowderEventCadenceParity PASS81.35s (native28.12s/Go30.32s) and TestPlayerFluidParity PASS113.06s (native44.11s/Go47.67s), aggregate exit0, preserving original outcomes.
 
 Limits: This pin covers a real survival player at stationary teleported endpoints, including ordinary two/four-cell body overlap. Multi-contact snapshots observed matching Health92/88 and absent TicksFrozen after the admitted-frame window. Extinguish means nonpositive Fire: native was-20 and Go0 in those snapshots; exact negative-fire-baseline parity remains open. Exact first-frame freeze order, swept movement paths, mixed adjacent lava/powder cells and other game modes are not newly established. The abandoned creative setup did not establish positive burn from stationary lava frames and provides no creative melt claim; existing creative fluid/movement checks remain intact. Interaction denial is unit/factual coverage of an inherited gate, not a new protected-player native wire pin. No copied native source/disassembly is part of the patch.
+
+## Slice — combined ocean, sulfur, fuse and powder verification (2026-10-31)
+
+- **Measured:** native comparisons separately establish flat-generator ocean
+  portal coldness, generated sulfur/nonsulfur cargo bags, signed creeper fuse
+  deadlines and burning-player powder contact across one/two/four cells.
+- **Implemented:** immutable ab97d6e combines those four slices and their
+  scoped documentation. Exact negative Fire normalization, remaining generator
+  contexts and complete explosion behavior stay open.
+- **Pinned:** build, default vet, both generated-fact checks and tagged blackbox
+  compilation pass. All17 default test packages were compiled under a build slot
+  and then executed from their own package directories with two workers,
+  localhost networking and count1; all exit0. Internal server403.356s,
+  default blackbox177.114s, world0.566s, worldgen29.532s and public server18.084s.
+  The driver exits0. This verifies the exact committed source without holding
+  compilation slots throughout test execution; it does not claim a full native
+  sweep. Commands and per-package binary hashes/results/logs are retained in
+  `work/verify-package-binaries.py`, `work/final-ab97d6e-check.log` and
+  `work/verified-ab97d6e-evidence/`. Per-slice native evidence remains recorded above.

@@ -358,3 +358,12 @@ a source callback; preserve natural-generation and unsupported-context behavior.
 For saved numeric limits, separate absent/wrong-type defaults from valid zero,
 negative and wrapped values. Pin actual deadlines and elapsed-state continuity
 through live edits; a runtime positive-only fallback can hide an ingress bug.
+
+A full verification can compile uniquely named package test binaries with
+`go test -c` under a build slot, then release the slot and execute every binary
+from its own package directory. Preserve complete `go list ./...` test-package
+membership, default/tagged build modes, executable hashes, logs and exit codes;
+no-test compilation is a build check, not behavioral proof. Bound runtime workers
+separately from native JVMs. When reclaiming compiler cache, hold both build slots
+and check that no compiler is active; preserve sources, patches, logs and explicit
+verification binaries. Cache eviction alone is not a source change.
