@@ -429,3 +429,9 @@ Health/max-health probes must distinguish raw, live merge and actual cold restor
 before an admitted tick. Retain normalized records, valid Owner state, actual
 damage and no-heal controls. An unfrozen sleep-paced query can observe a later
 clamp; applied damage need not equal a class maximum’s additional normalization.
+
+Keep measured native world output in ignored evidence, with hashes and an
+explicit fixture-input recipe. An opt-in fixture test skipped by default is
+not a proof receipt. Bind restart packets to saved UUIDs, preserve pairing
+through readiness, and distinguish entity-only export from whole-world saves.
+Reproduce the exact pre-save mutation before attributing an encoding failure.

@@ -37,7 +37,9 @@ unpack latent loot using the owning container's biome. Measured chest/barrel
 hopper automation does the same without granting later menu loot credit. Player powder-snow melt,
 inactive fire counters and stationary fire/soul-fire warmup have native
 comparisons; mixed hazards and swept paths remain partial. Creeper ignition, signed fuse/radius values and live fuse
-edits preserve measured packet and countdown behavior. Nonplayer scale changes
+edits preserve measured packet and countdown behavior. Creeper restart checks
+cover saved flags and transient swell, including native readback of Go entity
+exports. Nonplayer scale changes
 refresh physical bounds on living frames, with measured collision adjustment and
 movement packets. Selected scaled living mounts have independent saved/live seat
 checks; broader attachment and collision contexts remain partial. Each claim is scoped to the cases recorded in GOAL.md.

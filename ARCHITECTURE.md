@@ -1695,3 +1695,10 @@ materialize missing chunks. Natural ProtoChunk heightmap stages remain separate.
 Native physical unloading and interactions with other command map consumers
 remain unverified while the backend retains its resident columns. Other commands'
 configured-zero seed fallback is unchanged by this scoped normal-ocean path.
+
+Persisted creepers restore powered and ignited state with signed fuse/radius
+fields. Live ignition is sticky under false/absent NBT; powered state is
+replaceable. Elapsed swell resets on cold construction and survives live edits.
+Both flags serialize explicit bytes. Native readback covers actual Go entity-only
+exports; the separately reproduced generic /tag serialization failure prevents
+a broader whole-world save claim for that command sequence.

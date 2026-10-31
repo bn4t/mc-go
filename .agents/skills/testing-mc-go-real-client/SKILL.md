@@ -525,3 +525,10 @@ For scaled mounts, bind passenger packets to observed spawn UUIDs and verify
 player pose. Snapshot saved Pos and independent live markers inside one function
 before callbacks, then observe admitted player/entity frames separately. Frozen
 world age alone does not establish the callback clock of a mounted vehicle.
+
+For cold entity probes, retain pairing packets across readiness and bind their
+IDs to actual saved UUIDs. Measure deadlines from entity admission, independently
+of startup world age. Keep native world bytes ignored and record an explicit
+input→Go export→native readback recipe with hashes; a default fixture skip is
+not verification. Reproduce the same pre-save mutations when isolating a writer
+failure, and keep entity-only and whole-world save claims separate.

@@ -797,14 +797,12 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			m["IsBaby"] = nbtBool(e.Baby)
 		}
 		// Creeper.addAdditionalSaveData: powered + the fuse window +
-		// blast radius, ignited only while lit.
+		// blast radius and an explicit ignition byte, including false.
 		if typeName == "creeper" {
 			m["powered"] = nbtBool(e.Powered)
 			m["Fuse"] = int16(e.MaxSwell)
 			m["ExplosionRadius"] = int8(e.BlastPower)
-			if e.Ignited {
-				m["ignited"] = nbtBool(true)
-			}
+			m["ignited"] = nbtBool(e.Ignited)
 		}
 		// EnderMan.addAdditionalSaveData: carriedBlockState packs the
 		// BlockState codec — Name plus every property the default
@@ -1368,6 +1366,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		// Changing the limit leaves the already elapsed swell intact.
 		e.MaxSwell = int32(itemSavedShort(save["Fuse"], 30))
 		e.BlastPower = int32(int8(itemSavedShort(save["ExplosionRadius"], 3)))
+		e.Powered = nbtTruth(save["powered"])
+		// Native read latches true ignition; false/absence does not defuse.
+		if nbtTruth(save["ignited"]) {
+			e.Ignited = true
+		}
 	}
 
 	if name == "armor_stand" {
@@ -2038,6 +2041,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	}
 	if name == "creeper" {
 		known["Fuse"] = true
+		known["powered"], known["ignited"] = true, true
 	}
 	extras := map[string]any{}
 	for k, v := range save {
