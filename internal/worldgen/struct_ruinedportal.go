@@ -203,7 +203,14 @@ func ruinedPortalY(g *Generator, r Random, pl int, air bool, y, ySpan int32, bb 
 	corners := [4][2]int32{{bb.MinX, bb.MinZ}, {bb.MaxX, bb.MinZ}, {bb.MinX, bb.MaxZ}, {bb.MaxX, bb.MaxZ}}
 	var cols [4]baseColumn
 	for i, c := range corners {
-		cols[i] = g.RS.baseColumn(c[0], c[1])
+		if g.runtimeBaseBlock != nil {
+			cols[i] = baseColumn{minY: g.RS.lvMinY, blocks: make([]world.Block, g.RS.lvHeight)}
+			for j := range cols[i].blocks {
+				cols[i].blocks[j] = g.runtimeBaseBlock(c[0], g.RS.lvMinY+int32(j), c[1])
+			}
+		} else {
+			cols[i] = g.RS.baseColumn(c[0], c[1])
+		}
 	}
 	pred := notAir
 	if pl == rpOnOceanFloor {

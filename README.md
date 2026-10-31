@@ -455,7 +455,7 @@ suspicious sand), jungle pyramids (moss selector, traps, chests and
 dispensers), igloos (top/laboratory templates, chest, sign and furnace),
 ocean/beached shipwrecks (supply/treasure/map chests), cold/warm ocean ruins
 (large/cluster ruins, archaeology blocks and underwater ruin chests) and
-jungle/swamp ruined portals (portal chests) and nether fortresses (bridge/
+jungle/swamp/desert ruined portals (portal chests) and nether fortresses (bridge/
 castle pieces, nether-bridge chests and blaze spawners); correct `/fill`
 result counts and loaded endpoint checks; and player powder-snow freezing while
 world time is paused.

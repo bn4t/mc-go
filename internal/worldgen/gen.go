@@ -36,6 +36,7 @@ type Generator struct {
 	// immutable bundled-template cache used by terrain generation.
 	runtimeTemplate   func(string) map[string]any
 	runtimeBaseHeight func(int32, int32, int) int32
+	runtimeBaseBlock  func(int32, int32, int32) world.Block
 	runtimeSeaLevel   int32
 	runtimeSeaSet     bool
 }
