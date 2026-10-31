@@ -1493,7 +1493,8 @@ execute planning and global physics math remain separate limits.
 
 Food exhaustion spends only when strictly above four; an exact four remains
 until more exhaustion arrives. Deferred regeneration cost keeps its existing
-order. Fractional saturation and multiple spending quanta remain separate limits.
+order. Positive fractional saturation clamps to zero, and at most one
+exhaustion quantum is spent per admitted frame.
 
 
 The native firework explosion leaf always includes shape, including small_ball;
@@ -1544,8 +1545,12 @@ slot codecs and dye recipes, so black contributes to subsequent color mixing.
 
 Native entity persistence owns physical source slots after supported hydration.
 Saves select previous, current and unsettled submission slots; successful IO
-advances ownership. Unsupported roots and passenger composites remain opaque
-and unhydrated, including cloud, experience-orb and marker roots. Physical slots
+advances ownership. Registered but unsupported roots and passenger composites remain opaque
+and unhydrated, including cloud, experience-orb and marker roots. Unregistered
+passenger nodes are skipped so valid siblings can load; unregistered standalone
+roots remain opaque. Exactly zero-byte native entity-region files contain no
+records and can receive their first selected write. Nonzero truncated headers
+still block saving. Physical slots
 establish replacement authority independently of declared NBT Position. Failed
 loads block writes, and partial writes retain their footprint for the next save.
 Unselected compressed records and timestamps survive unchanged. Writes remain

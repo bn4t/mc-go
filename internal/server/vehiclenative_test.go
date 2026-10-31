@@ -217,6 +217,52 @@ func TestVehicleNativeInvalidIdentifiers(t *testing.T) {
 	if counts["oak_boat"] != 1 || counts["pig"] != 1 || len(counts) != 2 {
 		t.Fatalf("invalid roots/passengers affected valid siblings: %#v", counts)
 	}
+	if err := reload.SaveWorld(); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := world.LoadEntityRegions(world.DimensionDir(reload.WorldDir, dimOverworld))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("standalone invalid roots were not preserved: %#v", rows)
+	}
+	invalidRoots := 0
+	var boat map[string]any
+	for _, row := range rows {
+		if row["id"] == "test:bogus_boat" || row["id"] == "minecraft:foo_minecart" {
+			invalidRoots++
+		}
+		if row["id"] == "minecraft:oak_boat" {
+			if boat != nil {
+				t.Fatal("duplicate saved boat")
+			}
+			boat = row
+		}
+	}
+	if invalidRoots != 2 {
+		t.Fatalf("standalone invalid roots=%d want2", invalidRoots)
+	}
+	if boat == nil {
+		t.Fatal("saved boat missing")
+	}
+	passengers, ok := boat["Passengers"].(nbt.List)
+	if !ok || len(passengers.Items) != 1 || passengers.Items[0].(map[string]any)["id"] != "minecraft:pig" {
+		t.Fatalf("native invalid-node rejection/valid sibling save: %#v", boat["Passengers"])
+	}
+	restarted := nativeSaveTestServer(t)
+	restarted.WorldDir = reload.WorldDir
+	if err := restarted.LoadWorld(); err != nil {
+		t.Fatal(err)
+	}
+	counts = map[string]int{}
+	for _, e := range restarted.entities.All() {
+		name, _ := EntityTypeName(e.Type)
+		counts[name]++
+	}
+	if counts["oak_boat"] != 1 || counts["pig"] != 1 || len(counts) != 2 {
+		t.Fatalf("save/restart valid siblings: %#v", counts)
+	}
 }
 
 func TestVehicleNativeDeepPassengerTree(t *testing.T) {

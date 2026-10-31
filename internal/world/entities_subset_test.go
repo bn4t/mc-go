@@ -131,3 +131,32 @@ func TestLoadEntityRegionPhysicalSourceAuthority(t *testing.T) {
 		t.Fatalf("physical ownership %#v", chunks)
 	}
 }
+
+func TestEntityRegionsNativeEmptyFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "entities", "r.0.0.mca")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	chunks, err := LoadEntityRegionChunks(dir)
+	if err != nil || len(chunks) != 0 {
+		t.Fatalf("native zero-byte region: %#v %v", chunks, err)
+	}
+	if err := MergeEntityRegions(dir, map[[2]int32][]map[string]any{{0, 0}: nil}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() != 0 {
+		t.Fatalf("empty selection changed zero-byte region: %v %v", info, err)
+	}
+	if err := MergeEntityRegions(dir, map[[2]int32][]map[string]any{{0, 0}: {{"id": "minecraft:pig", "sentinel": "new"}}}); err != nil {
+		t.Fatal(err)
+	}
+	chunks, err = LoadEntityRegionChunks(dir)
+	if err != nil || len(chunks) != 1 || chunks[[2]int32{0, 0}][0]["sentinel"] != "new" {
+		t.Fatalf("first entity into native zero-byte file: %#v %v", chunks, err)
+	}
+}

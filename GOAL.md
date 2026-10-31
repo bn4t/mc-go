@@ -57,8 +57,11 @@ Mojang server over the wire.
 ### World
 - [~] Sharded world, block overrides, persistence: selective snapshots preserve
       untouched region records and have native terrain/pending-tick readback.
-      Scheduled containers now retire through serialized native IO; full backend
-      and entity eviction remain incomplete. Modeled native item loading and
+      Scheduled containers now retire through serialized native IO. Entity saves
+      retain physical-slot ownership, remove retired/moved supported roots and
+      preserve opaque passenger composites with failed-write retry controls;
+      full backend and entity eviction remain incomplete. Modeled native item
+      loading and
       stored enchantments, repair costs, maps, colors, banner layers, stew effects
       pot decorations, fireworks, instrument removal and ominous banners have disk/wire controls; arbitrary components remain
       incomplete.
@@ -104,7 +107,9 @@ Mojang server over the wire.
       also cover ocean/nether/end structures and overworld land structures,
       including fortresses, monuments, strongholds and mansions (see the two
       legacy-structure slices dated2026-10-29). Natural swamp-hut witch/cat residents
-      and mineshaft chest carts have dedicated save/restart controls; explicit
+      and mineshaft chest carts have dedicated save/restart controls; generated
+      mineshaft cargo also has exact seeded loot and real menu/restart checks;
+      explicit
       swamp-hut, desert-pyramid, jungle-pyramid, igloo and shipwreck
       placement have command pins (the pyramid's cellar, chest/suspicious-sand
       block entities and level-random roof selection, the jungle temple's moss
@@ -172,7 +177,9 @@ Mojang server over the wire.
 ### Entities
 - [~] Entity manager, spawn/remove/teleport
       Initial join avoids duplicate pairing; measured NoGravity base metadata
-      covers pairing, changes, resets and late observers. Natural spawning (caps, packs, placements, despawn) and
+      covers pairing, changes, resets and late observers. Creeper ignition now
+      has selected-hand cost, sound and independent metadata-flag controls.
+      Natural spawning (caps, packs, placements, despawn) and
       chunk-generation creatures: `TestNaturalSpawn*Parity`.
 - [x] Full entity type registry
 - [~] Physics, collision, AI, pathfinding: positioned player shapes, animated
@@ -246,9 +253,10 @@ Mojang server over the wire.
       exhaustion preserves food. Instant health/harm/saturation command durations
       and selected active-tick delivery are pinned; direct-dose coverage remains partial.
       Frozen environmental work follows the player frame instead of the command
-      poll, with strict void/air controls. Exhaustion spends only above four;
+      poll, with strict void/air controls. Exhaustion spends at most one quantum
+      per player frame, only above four, and clamps fractional saturation to zero;
       player powder exposure/thaw, wearable immunity and freeze damage rules have
-      actual-frame controls. Fractional saturation/multiple-quanta behavior and
+      actual-frame controls. Exact large-budget wire-frame injection and
       burning/melting or swept-path freezing remain separate gaps.
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
@@ -336,7 +344,9 @@ Mojang server over the wire.
   execution honors command-sequence budgets with captured sources. Supported
   execute plans share outer action/fork limits, batched predicates and ordered
   stores. Unsupported grammar, macros, returns and full syntax remain open.
-- [x] World save format parity (region files)
+- [~] World save format: native-compatible region writes and selective updates
+  have readback controls. Gzip/external entity-region reads remain unsupported;
+  complete format and lifecycle coverage is still open.
 - [~] RCON, query, properties parity (server.properties: read,
       completed with vanilla's defaults and rewritten byte for byte -
       `TestServerPropertiesParity`; applied to port, motd, world,
@@ -19857,3 +19867,9 @@ Evidence uses runtime wire observations with official 26.2 runtime SHA-256 `183c
 - **Limits** — This slice verifies ignition input, selected-hand costs, synchronized flags and sound shape. It does not establish complete fuse timing, explosion/block damage, charged-creeper behavior, arbitrary item component overrides, exact random pitch sequences, or a real GUI rendering assertion.
 
 Official 26.2 runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`; Temurin 25.0.5+8 and Go 1.27.3. Frozen seven-file patch SHA256 `0e6937acbf8de2365decbc33f60267afe2fc2df6999109d122a872257ae276a2`.
+
+## Slice — native invalid-passenger and empty-region compatibility (2026-10-31)
+
+- **Measured:** real26.2 native disk loading skips unregistered `test:bogus_boat`/`minecraft:foo_minecart` roots and passenger nodes, admits their known oak_boat/pig sibling, and saves exactly that boat/pig tree. Runtime tag witness, native clean exits and direct saved-region readback establish admission and persistence. Native also leaves unused entity-region files exactly0bytes after clean shutdown; the prior Go loader rejected those files. Source: real server storage/command observations, Temurin25.0.5+8, bundled server SHA256183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8; reproduction/evidence in `work/entity-invalid-native/` and matching logs.
+- **Implemented:** composite preflight skips unregistered passenger nodes, restoring valid sibling admission; registered entities with unsupported serializers still keep the complete tree opaque. Unregistered standalone roots retain the existing opaque preservation policy. Entity-only loading/merging accepts exactly zero-byte native region files as empty, including writing the first selected record; nonempty truncated regions remain errors. Ownership receipts and partial-write retry semantics are unchanged.
+- **Pinned:** original `TestVehicleNativeInvalidIdentifiers` fails on e99b785 and passes with its boat/pig assertion preserved, plus save/read/restart and standalone invalid-root retention. `TestNativeEntityCompositeRegistrationBoundary` retains opaque registered arrow/cloud/XP/marker controls. `TestEntityRegionsNativeEmptyFiles` covers zero-byte read, empty selection and first record; existing nonzero corruption/no-write, raw-neighbor, ownership/retry and deep-tree controls pass. Final Go reader accepts the entire actual native fixture world, including three zero-byte files.

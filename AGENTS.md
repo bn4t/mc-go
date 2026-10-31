@@ -345,3 +345,8 @@ preserve failed submission footprints and reject stale load receipts. Verify
 unselected compressed payloads/timestamps and physical source-slot authority.
 Run socket-dependent regression tests with local networking enabled. Execute
 precompiled test binaries from their package directory so relative fixtures resolve.
+
+Entity-region tests must distinguish native zero-byte unused files from nonzero
+corruption, and unregistered passenger IDs from registered entities lacking
+serializers. Pin valid siblings, standalone opaque roots and the first selected
+write into a native empty file.

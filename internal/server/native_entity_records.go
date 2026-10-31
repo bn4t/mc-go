@@ -160,7 +160,14 @@ func nativeEntityCompositeRestorable(root map[string]any) bool {
 				return false
 			}
 			name, _ := child["id"].(string)
-			if !nativePassengerTreeName(strings.TrimPrefix(name, "minecraft:")) {
+			name = strings.TrimPrefix(name, "minecraft:")
+			// Native recursive loading skips an unregistered entity node;
+			// it does not prevent valid siblings from being admitted. Registered
+			// types with unsupported serializers still make this tree opaque.
+			if _, registered := EntityTypeID(name); !registered {
+				continue
+			}
+			if !nativePassengerTreeName(name) {
 				return false
 			}
 			pending = append(pending, child)

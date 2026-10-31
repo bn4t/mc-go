@@ -30,6 +30,11 @@ func LoadEntityRegionChunks(dir string) (map[[2]int32][]map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Native RegionFile construction can leave an unused zero-byte file.
+		// It has no records; a nonempty short header remains a load error.
+		if info.Size() == 0 {
+			continue
+		}
 		if info.Size() < 2*regionSectors {
 			return nil, fmt.Errorf("entity region %s: truncated header", file)
 		}
@@ -91,7 +96,7 @@ func MergeEntityRegions(dir string, selection map[[2]int32][]map[string]any) err
 	for region, updates := range byRegion {
 		path := filepath.Join(dir, "entities", fmt.Sprintf("r.%d.%d.mca", region.X, region.Z))
 		raw, err := os.ReadFile(path)
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, os.ErrNotExist) || (err == nil && len(raw) == 0) {
 			onlyEmpty := true
 			for _, record := range updates {
 				if len(record) != 0 {

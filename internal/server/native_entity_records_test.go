@@ -321,3 +321,15 @@ func TestNativeEntityOpaqueSnapshotDetached(t *testing.T) {
 		t.Fatal("snapshot aliases private opaque state")
 	}
 }
+
+func TestNativeEntityCompositeRegistrationBoundary(t *testing.T) {
+	for _, name := range []string{"test:bogus_boat", "minecraft:foo_minecart", "minecraft:arrow", "minecraft:area_effect_cloud", "minecraft:experience_orb", "minecraft:marker"} {
+		t.Run(name, func(t *testing.T) {
+			root := map[string]any{"id": "minecraft:oak_boat", "Passengers": nbt.List{Elem: nbt.TagCompound, Items: []any{map[string]any{"id": name}, map[string]any{"id": "minecraft:pig"}}}}
+			want := name == "test:bogus_boat" || name == "minecraft:foo_minecart"
+			if got := nativeEntityCompositeRestorable(root); got != want {
+				t.Fatalf("composite admission for %q=%v want%v", name, got, want)
+			}
+		})
+	}
+}
