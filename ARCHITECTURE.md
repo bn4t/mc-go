@@ -1622,3 +1622,9 @@ use the existing menu queue, and only opening-player access grants loot credit.
 Chest/barrel sulfur/nonsulfur command/menu cases have native pins. Double-chest
 biome boundaries, hopper-specific latent storage, destruction and block restart
 remain outside the new proof.
+
+Tracked-entity relative positions use 4096 units per block, rounded to the nearest
+integer with signed half ties toward positive infinity. The fractional-part
+comparison preserves doubles immediately below a half step. Physical positions
+remain independent from encoded endpoints; other codecs and frozen spawn-resend
+timing are separate. Public API facts are reproduced in tools/probeentityposition.

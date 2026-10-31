@@ -415,11 +415,26 @@ func (s *Server) mobSyncFlush(e *Entity) {
 	}
 }
 
-// mobFixed is the tracker's fixed-point position scale: one block is
-// 4096 units, and positions encode floored like vanilla's
-// TrackedPosition.
+// mobFixed is the measured VecDeltaCodec position quantizer: 4096 units
+// per block, nearest integer with signed half ties toward positive infinity.
+// Compare the fractional part instead of adding .5, which can round a value
+// immediately below a half step onto the tie before integer conversion.
 func mobFixed(v float64) int64 {
-	return int64(math.Floor(v * 4096))
+	scaled := v * 4096
+	if math.IsNaN(scaled) {
+		return 0
+	}
+	if scaled >= float64(math.MaxInt64) {
+		return math.MaxInt64
+	}
+	if scaled <= float64(math.MinInt64) {
+		return math.MinInt64
+	}
+	lower := math.Floor(scaled)
+	if scaled-lower >= .5 {
+		lower++
+	}
+	return int64(lower)
 }
 
 func mobByteDiff(a, b byte) int {

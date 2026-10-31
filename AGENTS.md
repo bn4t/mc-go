@@ -378,3 +378,9 @@ Separate an isolated clear/reset method from its later world-contact settlement.
 Retain positive and increasing-inactive counter controls; normalization must not
 erase progress toward ignition. Pace eventual-outcome probes by actual admitted
 frames, not by the number of read-only polls.
+
+Entity position quantization facts are reproduced with tools/probeentityposition.
+Pin signed half ties and adjacent representable doubles; Go math.Round has a
+different negative-half convention. Establish equal physical positions before
+attributing a relative packet mismatch to quantization. Keep raw packet arrays
+when normalizing only independently observed native timing variability.
