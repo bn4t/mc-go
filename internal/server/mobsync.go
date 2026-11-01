@@ -40,10 +40,8 @@ var attrSyncable = func() map[string]bool {
 }()
 
 // mobSyncAttrs builds update_attributes' body for a mob: every dirty
-// syncable attribute instance, at its current base, with the effect.speed
-// modifier folded into movement_speed while a live speed instance is
-// active (vanilla's SpeedEffect modifier is 0.2*(amplifier+1)
-// add_multiplied_total). Emitted names are sorted for determinism —
+// syncable attribute instance, at its current base and modifiers.
+// Emitted names are sorted for determinism —
 // vanilla's emit order is fastutil hash order.
 func mobSyncAttrs(e *Entity, now int64) []byte {
 	name, ok := EntityTypeName(e.Type)
@@ -85,15 +83,7 @@ func mobSyncAttrs(e *Entity, now int64) []byte {
 				mods = append(mods, attrModifier{id, m[id].value, int32(m[id].op)})
 			}
 		}
-		if a == "movement_speed" {
-			if inst, ok := e.Effects[effectSpeed]; ok && (inst.expiry < 0 || inst.expiry > now) {
-				mods = append(mods, attrModifier{
-					key:    "minecraft:effect.speed",
-					amount: 0.2 * float64(inst.amplifier+1),
-					op:     2, // add_multiplied_total
-				})
-			}
-		}
+
 		base, has := e.AttrBase[a]
 		if !has {
 			base = bases[a]

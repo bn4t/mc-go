@@ -2049,8 +2049,7 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 
 // pairingAttrs builds the pairing-stream update_attributes body: the
 // entity's materialized attributes filtered to client-syncable, each
-// at its current base, with the speed effect's multiplier folded into
-// movement_speed like mobSyncAttrs. Vanilla's getSyncableAttributes
+// at its current base and modifiers. Vanilla's getSyncableAttributes
 // only returns AttributeInstances that exist — created lazily on first
 // access — so the set is AttrTouched ∩ syncable, not the supplier.
 func pairingAttrs(e *Entity, now int64) []byte {
@@ -2079,15 +2078,16 @@ func pairingAttrs(e *Entity, now int64) []byte {
 	b.VarInt(int32(len(names)))
 	for _, a := range names {
 		var mods []attrModifier
-		if a == "movement_speed" {
-			if inst, ok := e.Effects[effectSpeed]; ok && (inst.expiry < 0 || inst.expiry > now) {
-				mods = append(mods, attrModifier{
-					key:    "minecraft:effect.speed",
-					amount: 0.2 * float64(inst.amplifier+1),
-					op:     2, // add_multiplied_total
-				})
-			}
+		ids := make([]string, 0, len(e.AttrMods[a]))
+		for id := range e.AttrMods[a] {
+			ids = append(ids, id)
 		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			mod := e.AttrMods[a][id]
+			mods = append(mods, attrModifier{id, mod.value, int32(mod.op)})
+		}
+
 		base, has := e.AttrBase[a]
 		if !has {
 			base = bases[a]

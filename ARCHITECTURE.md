@@ -1782,3 +1782,13 @@ counters, AI, effects, portal cooldown and the generic NPC seat-weld pass
 remain outside this callback. Normal world frames retain their existing pipeline. Complete
 frozen mounted ticking, tracker periodicity and dynamic camel NPC seat geometry
 remain outside this measured callback scope.
+
+For NPC speed and slowness, live effect transitions install the canonical
+movement-speed modifiers on the entity attribute instance; promotion, clear
+and expiry update that instance. Attribute queries, consumers that resolve
+that attribute, saved permanent modifiers and attribute packets use this shared
+state. Raw hydration retains the supplied attribute records and does not
+synthesize an effect modifier. The independently measured raw summon retains
+an active effect without its modifier through an admitted body interval.
+Native movement trajectories, all NPC movement controllers, cold effect
+restoration and other effect attribute families remain separately scoped.

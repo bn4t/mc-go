@@ -393,7 +393,7 @@ func (s *Server) mobGiveEffectFlags(e *Entity, id, amplifier, ticks int32, flags
 	if prev, ok := e.Effects[id]; ok && (prev.expiry < 0 || prev.expiry > now) {
 		switch {
 		case amplifier > prev.amplifier:
-			if ticks >= 0 && prev.expiry >= 0 && int64(ticks) <= prev.expiry-now {
+			if ticks >= 0 && prev.expiry >= 0 && int64(ticks) < prev.expiry-now {
 				prevCopy := prev
 				newInst.hidden = &prevCopy
 			}
@@ -413,6 +413,7 @@ func (s *Server) mobGiveEffectFlags(e *Entity, id, amplifier, ticks int32, flags
 		}
 	}
 	e.Effects[id] = newInst
+	setNPCMovementEffectAttribute(e, id, newInst)
 	// LivingEntity.onEffectAdded sends update_mob_effect to passengers
 	// only; trackers see the effect through entity data (particles) and
 	// the attribute-modifier resend on the next sendChanges.
@@ -474,6 +475,9 @@ func mobHasLiveEffect(e *Entity, id int32, now int64) bool {
 // attribute resend, not on remove_mob_effect (vanilla sends that packet
 // to passengers only).
 func (s *Server) mobClearAllEffects(e *Entity) {
+	for id := range e.Effects {
+		removeNPCMovementEffectAttribute(e, id)
+	}
 	e.Effects = nil
 	e.MetaDirty = true
 	e.AttrDirty = true
@@ -481,6 +485,9 @@ func (s *Server) mobClearAllEffects(e *Entity) {
 
 // mobClearEffect removes one live instance the same way.
 func (s *Server) mobClearEffect(e *Entity, id int32) {
+	if _, present := e.Effects[id]; present {
+		removeNPCMovementEffectAttribute(e, id)
+	}
 	delete(e.Effects, id)
 	e.MetaDirty = true
 	e.AttrDirty = true
@@ -697,7 +704,9 @@ func (s *Server) mobEffectTickStep() {
 			if inst.expiry >= 0 && s.clock.count >= inst.expiry {
 				if inst.hidden != nil {
 					ep.Effects[id] = *inst.hidden
+					setNPCMovementEffectAttribute(ep, id, *inst.hidden)
 				} else {
+					removeNPCMovementEffectAttribute(ep, id)
 					delete(ep.Effects, id)
 				}
 				changed = true
