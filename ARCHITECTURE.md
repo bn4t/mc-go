@@ -1775,7 +1775,10 @@ Frozen player owner frames consume living collision-scale caches in admitted
 reciprocal riding graphs before the existing per-session seating pass. The
 callback runs once globally and preserves riding NPC anchors; a meaningful root
 resize can send its measured dirty movement without advancing tracker cadence.
-It does not run body counters, AI, effects, portal cooldown or the generic NPC
-seat-weld pass. Normal world frames retain their existing pipeline. Complete
+The same graph admission advances ageable NPC growth and breeding cooldown once
+per frozen owner frame; frozen world steps independently select the current
+graph before the world body pass and skip its age phase. Fire, other body
+counters, AI, effects, portal cooldown and the generic NPC seat-weld pass
+remain outside this callback. Normal world frames retain their existing pipeline. Complete
 frozen mounted ticking, tracker periodicity and dynamic camel NPC seat geometry
 remain outside this measured callback scope.

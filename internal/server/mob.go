@@ -4980,6 +4980,10 @@ var nonMobLiving = map[string]bool{
 }
 
 func (s *Server) mobTickStep() {
+	// World steps can precede the next player frame; take a fresh graph
+	// selection now instead of relying on the previous callback.
+	frozenMounted := map[int32]bool{}
+	s.forEachFrozenMountedEntityOwned(func(e *Entity) { frozenMounted[e.ID] = true })
 	s.entities.mu.RLock()
 	mobs := make([]*Entity, 0, len(s.entities.byID))
 	for _, e := range s.entities.byID {
@@ -5285,19 +5289,8 @@ func (s *Server) mobTickStep() {
 				}
 			}
 		}
-		// AgeableMob.aiStep's age step: babies count up toward grown
-		// at 0 while canAgeUp (AgeLocked freezes the counter),
-		// adults count a breeding cooldown down.
-		if ageableTypes[ambName] && e.Age != 0 {
-			if e.Age < 0 && !e.AgeLocked {
-				e.Age++
-				if e.Age == 0 {
-					e.Baby = false
-					e.MetaDirty = true
-				}
-			} else if e.Age > 0 {
-				e.Age--
-			}
+		if !frozenMounted[e.ID] {
+			mobAgeFrame(e, ambName)
 		}
 		// Mob.baseTick's ambient voice — independent of NoAI: counter
 		// climbs from 0, fires when random < count, resets to
@@ -11110,4 +11103,20 @@ func (s *Server) convertEntityType(t *Entity, toName string, finalize func(ne *E
 	s.broadcastEntitySpawnIn(t.Dim, nil, *ne)
 	s.entities.Remove(t.ID)
 	s.broadcastEntityRemoveIn(t.Dim, nil, []int32{t.ID})
+}
+
+// mobAgeFrame is shared by the ordinary body pass and frozen mounted frames.
+func mobAgeFrame(e *Entity, name string) {
+	if !ageableTypes[name] || e.Age == 0 {
+		return
+	}
+	if e.Age < 0 && !e.AgeLocked {
+		e.Age++
+		if e.Age == 0 {
+			e.Baby = false
+			e.MetaDirty = true
+		}
+	} else if e.Age > 0 {
+		e.Age--
+	}
 }

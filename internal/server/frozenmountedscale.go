@@ -3,9 +3,43 @@ package server
 import "sort"
 
 // Frozen owner frames still consume dimensions in a player-mounted graph.
-// This callback deliberately does not advance body counters, effects or AI.
+// This callback also advances age, but not other body counters, effects or AI.
 // It runs once globally, before the existing per-player seating consumers.
 func (s *Server) frozenMountedScaleCallbacksOwned() {
+	if !s.clock.isFrozen() || s.clock.isSprinting() {
+		return
+	}
+	s.forEachFrozenMountedEntityOwned(func(e *Entity) {
+		name, _ := EntityTypeName(e.Type)
+		if e.Living && name != "player" {
+			before := [3]float64{e.X, e.Y, e.Z}
+			if !e.syncInit {
+				s.latchSyncBaseline(e)
+			}
+			s.refreshMobCollisionScaleFrame(e, e.Riding == 0)
+			// A changed root can require one dirty movement update. Reuse the
+			// quantized movement emitter without advancing the tracker cadence.
+			// Sub-quantum free-center adjustments do not force zero packets.
+			dx, dy, dz := mobFixed(e.X)-mobFixed(before[0]), mobFixed(e.Y)-mobFixed(before[1]), mobFixed(e.Z)-mobFixed(before[2])
+			if e.Riding == 0 && float64(dx)*float64(dx)+float64(dy)*float64(dy)+float64(dz)*float64(dz) >= 128 {
+				s.mobMoveSync(e)
+			}
+		}
+		if e.Living && name != "player" && !e.Dying && e.dragon == nil {
+
+			wasBaby := e.Baby
+			mobAgeFrame(e, name)
+			if wasBaby && !e.Baby && packsBabyAt16(name) && len(e.dataSync) == 0 {
+				s.broadcastEntityMetadata(e.ID, []byte{16, 8, 0, 0xff})
+				e.metaSent.baby = false
+			}
+		}
+	})
+}
+
+// Each pass takes a fresh graph snapshot under simulation ownership. The world
+// step can run before any paced player frame and must select independently.
+func (s *Server) forEachFrozenMountedEntityOwned(visitEntity func(*Entity)) {
 	if !s.clock.isFrozen() || s.clock.isSprinting() {
 		return
 	}
@@ -70,21 +104,7 @@ func (s *Server) frozenMountedScaleCallbacksOwned() {
 		if !s.mobInSimulationRange(e) {
 			return
 		}
-		name, _ := EntityTypeName(e.Type)
-		if e.Living && name != "player" {
-			before := [3]float64{e.X, e.Y, e.Z}
-			if !e.syncInit {
-				s.latchSyncBaseline(e)
-			}
-			s.refreshMobCollisionScaleFrame(e, e.Riding == 0)
-			// A changed root can require one dirty movement update. Reuse the
-			// quantized movement emitter without advancing the tracker cadence.
-			// Sub-quantum free-center adjustments do not force zero packets.
-			dx, dy, dz := mobFixed(e.X)-mobFixed(before[0]), mobFixed(e.Y)-mobFixed(before[1]), mobFixed(e.Z)-mobFixed(before[2])
-			if e.Riding == 0 && float64(dx)*float64(dx)+float64(dy)*float64(dy)+float64(dz)*float64(dz) >= 128 {
-				s.mobMoveSync(e)
-			}
-		}
+		visitEntity(e)
 		for _, id := range e.Passengers {
 			child := lookup(id)
 			if child != nil && child.Riding == e.ID && child.Dim == e.Dim {
