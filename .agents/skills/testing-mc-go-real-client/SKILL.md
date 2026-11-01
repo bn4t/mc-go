@@ -504,6 +504,10 @@ A mounted entity's `/data get ... Pos` is its serialized representation: direct
 vehicle X/Z with rider Y. Measure live position independently, for example with
 an unmounted marker summoned at the rider executor. Keep actual packet movement,
 live seats, command save views and player disk snapshots as separate checks.
+When a mounted tracker sends an absolute entity position, compare it against the
+immediately preceding decoded wire position after applying every relative delta;
+a same-position sync is not physical displacement. Retain the raw packet array,
+test unexpected position changes, and report tracker periodicity separately.
 
 ## Block boundary exposure probes
 

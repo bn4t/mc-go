@@ -54,6 +54,9 @@ func TestFrozenMountedPortalCooldownParity(t *testing.T) {
 		var fresh []spawn
 		phase := "setup"
 		wire := map[string][]string{}
+		stationaryRootAbsolute := map[string]int{}
+		var rootWirePos [3]float64
+		rootWireKnown := false
 		watch := map[int32]string{}
 		links := map[int32][]int32{}
 		fold := func(lines []string) []string {
@@ -82,6 +85,11 @@ func TestFrozenMountedPortalCooldownParity(t *testing.T) {
 					z, d := r.Short()
 					if a == nil && b == nil && c == nil && d == nil && watch[e] != "" {
 						wire[phase] = append(wire[phase], fmt.Sprintf("%s move %d %d %d", watch[e], x, y, z))
+						if watch[e] == "Root" && rootWireKnown {
+							rootWirePos[0] += float64(x) / 4096
+							rootWirePos[1] += float64(y) / 4096
+							rootWirePos[2] += float64(z) / 4096
+						}
 					}
 				case server.LatestVersion().IDs.PlayEntityTeleportCB:
 					e, a := r.VarInt()
@@ -90,6 +98,16 @@ func TestFrozenMountedPortalCooldownParity(t *testing.T) {
 					z, d := r.Double()
 					if a == nil && b == nil && c == nil && d == nil && watch[e] != "" {
 						wire[phase] = append(wire[phase], fmt.Sprintf("%s absolute %.12f %.12f %.12f", watch[e], x, y, z))
+						if watch[e] == "Root" {
+							pos := [3]float64{x, y, z}
+							if !rootWireKnown || pos != rootWirePos {
+								t.Errorf("root absolute changed physical position in %s: known %v received %v", phase, rootWirePos, pos)
+							} else {
+								stationaryRootAbsolute[phase]++
+							}
+							rootWirePos = pos
+							rootWireKnown = true
+						}
 					}
 				case server.IDPlayRemoveEntity:
 					n, err := r.VarInt()
@@ -170,6 +188,10 @@ func TestFrozenMountedPortalCooldownParity(t *testing.T) {
 			}
 			e, ok := observed[tag]
 			watch[e.id] = tag
+			if tag == "Root" {
+				rootWirePos = [3]float64{.5, 162, .5}
+				rootWireKnown = true
+			}
 			if !ok {
 				t.Fatal("actual body spawn absent", tag)
 			}
@@ -445,7 +467,7 @@ func TestFrozenMountedPortalCooldownParity(t *testing.T) {
 			t.Errorf("outside contact unexpectedly rearmed: %g -> %g frames %g", outside.nums["RootPortalCooldown"], outsideEnd.nums["RootPortalCooldown"], elapsed)
 		}
 
-		t.Logf("%s wire%v", addr, wire)
+		t.Logf("%s wire%v stationaryRootAbsolute%v", addr, wire, stationaryRootAbsolute)
 		count := 0
 		for phase, events := range wire {
 			for _, event := range events {
@@ -453,6 +475,11 @@ func TestFrozenMountedPortalCooldownParity(t *testing.T) {
 					continue
 				}
 				if event == "Root move 0 0 0" {
+					continue
+				}
+				// Absolute packets were compared with the immediately preceding
+				// decoded root position in fold, and remain in raw wire above.
+				if strings.HasPrefix(event, "Root absolute ") {
 					continue
 				}
 				if (phase != "scaleCommand" && phase != "directScale") || event != "Root move 0 -2432 0" {

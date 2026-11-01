@@ -395,6 +395,10 @@ from effective attributes, saved Pos and independently observed live position.
 Keep resize before the existing tracker flush and pin its cadence; a second flush
 can shift packet phase. Retain zero movement packets in timing checks, and record
 raw arrays before normalizing independently measured native arrival variation.
+A position-sync packet is physical movement only when its absolute position
+changes the preceding decoded wire position. Establish that position from the
+controlled spawn and apply every relative delta in order; retain all raw syncs
+and test tracker periodicity separately instead of silently dropping packets.
 A valid raw summon that fails hydration is a separate production defect, not an
 unsupported fixture; preserve that red case when narrowing command-based probes.
 
