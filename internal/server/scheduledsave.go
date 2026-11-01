@@ -9,6 +9,7 @@ import (
 // Pending queues are copied while the simulation owner holds world state.
 // The asynchronous native writer receives only primitive detached records.
 func (s *Server) captureScheduledChunkTicksOwned() map[string]map[[2]int32]world.SavedChunkTicks {
+	s.drainGeneratedLeafTicksOwned()
 	out := map[string]map[[2]int32]world.SavedChunkTicks{}
 	if s.ticks == nil {
 		return out

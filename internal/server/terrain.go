@@ -56,7 +56,8 @@ type terrainSource struct {
 	fresh   [][2]int
 	// genEntities are the feature/structure entities (crystals and residents)
 	// of chunks handed out since the last drain (drainGenEntities).
-	genEntities []worldgen.GenEntity
+	genEntities  []worldgen.GenEntity
+	genLeafTicks []worldgen.GeneratedLeafTick
 }
 
 type terrainEntry struct {
@@ -169,13 +170,17 @@ func (t *terrainSource) ProvideChunk(x, z int) *world.BaseChunk {
 	if !t.provided[[2]int32{cx, cz}] && t.onGenerated != nil {
 		t.onGenerated(x, z, t.g.BiomeAt(cx*16, t.maxY, cz*16))
 	}
+	firstProvided := !t.provided[[2]int32{cx, cz}]
 	t.provided[[2]int32{cx, cz}] = true
-	if len(base.PostProcess) > 0 || len(base.BlockEntities) > 0 || len(p.Entities) > 0 {
+	if len(base.PostProcess) > 0 || len(base.BlockEntities) > 0 || len(p.Entities) > 0 || (firstProvided && len(p.LeafTicks) > 0) {
 		t.freshMu.Lock()
 		if len(base.PostProcess) > 0 || len(base.BlockEntities) > 0 {
 			t.fresh = append(t.fresh, [2]int{x, z})
 		}
 		t.genEntities = append(t.genEntities, p.Entities...)
+		if firstProvided {
+			t.genLeafTicks = append(t.genLeafTicks, p.LeafTicks...)
+		}
 		t.freshMu.Unlock()
 	}
 	t.prune(cx, cz)
@@ -513,5 +518,27 @@ func (s *Server) applyFlatPreset(p *world.FlatPreset) {
 	s.spawnMu.Unlock()
 	if !have {
 		s.setWorldSpawn(0, top, 0)
+	}
+}
+
+// drainGeneratedLeafTicksOwned transfers detached worker output to the
+// simulation-owned scheduler; a generated chunk may remain dormant at FULL.
+func (s *Server) drainGeneratedLeafTicksOwned() {
+	if s.ticks == nil {
+		return
+	}
+	for dim, d := range s.dims {
+		if d == nil || d.terrain == nil {
+			continue
+		}
+		t := d.terrain
+		t.freshMu.Lock()
+		rows := t.genLeafTicks
+		t.genLeafTicks = nil
+		t.freshMu.Unlock()
+		for _, row := range rows {
+			p := row.Pos
+			s.ticks.deferGeneratedTick(schedKey{dim: dim, pos: world.Pos{X: int(p[0]), Y: int(p[1]), Z: int(p[2])}, kind: tickBlock, block: row.Block}, 0)
+		}
 	}
 }

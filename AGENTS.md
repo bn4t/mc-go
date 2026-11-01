@@ -461,3 +461,7 @@ success-or-empty replies for every count band, and sum exact results. Preserve
 oversized-volume or premature-readiness attempts as invalid fixture evidence,
 not production RED or native output variation. Freeze corrected source and
 expectations together before unchanged-baseline and candidate comparisons.
+
+Native block-property names do not establish property identity. When a behavior
+reads a named property from another block family, inspect the public property
+domains and equality and pin a runtime neighbor control before matching it.

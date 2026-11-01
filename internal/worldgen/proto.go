@@ -30,6 +30,9 @@ type ProtoChunk struct {
 	// PostProcess holds positions setBlock marked for post-processing
 	// (BlockState.getPostProcessPos).
 	PostProcess [][3]int32
+	// LeafTicks are generation-time block tick requests, in first-request order.
+	LeafTicks   []GeneratedLeafTick
+	leafTickSet map[GeneratedLeafTick]bool
 	// bePending holds the positions with a pending DUMMY block entity
 	// tag, beReal the configured block entities (blockentity.go).
 	bePending map[BlockPos]bool
@@ -38,6 +41,22 @@ type ProtoChunk struct {
 	// Entities are the feature/structure entities generated into this chunk,
 	// admitted by the server when the chunk is provided.
 	Entities []GenEntity
+}
+
+// GeneratedLeafTick retains the block identity at the time of scheduling.
+type GeneratedLeafTick struct {
+	Pos   BlockPos
+	Block string
+}
+
+func (p *ProtoChunk) scheduleLeafTick(t GeneratedLeafTick) {
+	if p.leafTickSet == nil {
+		p.leafTickSet = make(map[GeneratedLeafTick]bool)
+	}
+	if !p.leafTickSet[t] {
+		p.leafTickSet[t] = true
+		p.LeafTicks = append(p.LeafTicks, t)
+	}
 }
 
 func (p *ProtoChunk) idx(x, y, z int32) int32 { return ((y-p.MinY)*16+z)*16 + x }

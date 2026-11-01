@@ -35,3 +35,19 @@ func (t *tickScheduler) activateSavedChunk(chunk scheduledChunk, now int64) {
 	}
 	delete(t.relative, chunk)
 }
+
+// deferGeneratedTick admits a generation request once, preserving its relative
+// delay until the chunk becomes active. Reattaching first fences any stale
+// retirement snapshot before adding a new resident request.
+func (t *tickScheduler) deferGeneratedTick(key schedKey, delay int32) {
+	key.recordID = 0
+	chunk := scheduledChunkOf(key)
+	t.reattachChunk(chunk)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.owners[key] || t.relativeOwners[key] {
+		return
+	}
+	t.relative[chunk] = append(t.relative[chunk], relativeScheduledTick{key: key, delay: delay, priority: tickPrioNormal})
+	t.relativeOwners[key] = true
+}

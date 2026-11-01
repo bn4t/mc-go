@@ -1801,3 +1801,11 @@ Zombie melee chase resolves the entity's current movement-speed attribute,
 including base overrides and modifiers. A frozen same-zombie comparison pins
 positive motion and a faster Speed II window toward a stationary survival
 player. It does not certify other goals, controllers or whole trajectories.
+
+Tree edge shape updates retain generation-time leaf block-tick requests in the
+owning proto chunk. The provider hands detached requests to the simulation
+owner, which preserves their block identity and relative delay through the
+existing FULL activation and save paths. Leaf distance checks use the built-in
+leaf block family: scaffolding's differently ranged property has the same name
+but is not the native leaf property. Other generation-time tick families and
+the provider's decoration order remain separate limitations.

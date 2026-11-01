@@ -1,6 +1,9 @@
 package worldgen
 
-import "mc-go/internal/world"
+import (
+	"mc-go/internal/world"
+	"strconv"
+)
 
 // treeupdateShape is BlockState.updateShape for the families a tree's edge
 // update can touch: the tree's own blocks (logs, leaves, vines, cocoa,
@@ -10,6 +13,24 @@ import "mc-go/internal/world"
 func treeUpdateShape(rg *Region, st world.Block, p BlockPos, dir int, q BlockPos, nb world.Block) world.Block {
 	name, _ := world.StateOwner(st)
 	cls := blockClass(name)
+	// LeavesBlock.updateShape schedules a tick without changing the state.
+	if hasClass(name, "LeavesBlock") {
+		current, _ := world.StateProperty(st, "distance")
+		cur, err := strconv.Atoi(current)
+		if err == nil {
+			other, ok := leafDistance(nb)
+			if !ok {
+				other = 7
+			}
+			next := other + 1
+			if next != 1 || int32(cur) != next {
+				if c := rg.chunkAt(p[0], p[2]); c != nil && p[1] >= c.MinY && p[1] < c.MinY+c.Height {
+					c.scheduleLeafTick(GeneratedLeafTick{Pos: p, Block: name})
+				}
+			}
+		}
+		return st
+	}
 	switch cls[0] {
 	case "VineBlock":
 		if dir == dirDown {

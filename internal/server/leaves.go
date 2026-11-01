@@ -6,15 +6,16 @@ import (
 
 	"mc-go/internal/data"
 	"mc-go/internal/world"
+	"mc-go/internal/worldgen"
 )
 
 // Leaf decay, measured off the 26.2 jar (LeavesBlock):
 //
 //   - getDistanceAt(state): a #prevents_nearby_leaf_decay block (every
-//     log, wood, stem and hyphae, stripped or not) reads 0; anything
-//     carrying a `distance` property reads it — scaffolding leaks in
-//     by name, exactly as vanilla's hasProperty(DISTANCE) does; every
-//     other block reads 7.
+//     log, wood, stem and hyphae, stripped or not) reads 0; the leaf
+//     DISTANCE property reads its value. Scaffolding's differently ranged
+//     property has the same name but is not the same native property;
+//     other blocks read 7.
 //   - updateShape: a leaf whose neighbour changed schedules a block
 //     tick (+1) unless the changed neighbour is distance-source 0 and
 //     the leaf is already at 1 — `if (i != 1 || distance != i)
@@ -37,8 +38,10 @@ func leafDistanceOf(b world.Block) int {
 	if blockTagHas("prevents_nearby_leaf_decay", name) {
 		return 0
 	}
-	if d, ok := intProp(b, "distance"); ok {
-		return d
+	if worldgen.IsLeaves(b) {
+		if d, ok := intProp(b, "distance"); ok {
+			return d
+		}
 	}
 	return 7
 }
