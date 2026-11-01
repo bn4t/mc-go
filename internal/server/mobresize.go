@@ -16,7 +16,17 @@ func (s *Server) mobSyncLivingFrame(e *Entity) {
 // A command before its first frame is consumed after base-tick admission.
 // Player dimensions retain their separate admitted player-frame path.
 func (s *Server) refreshMobCollisionScale(e *Entity) {
-	if !e.Living || e.Dying || e.dragon != nil || e.TickCount == 0 {
+	if e.TickCount == 0 {
+		return
+	}
+	s.refreshMobCollisionScaleFrame(e, true)
+}
+
+// A frozen mounted callback is an admitted dimension frame, even when the
+// separate world-body tick has not run. Riding anchors retain their position;
+// the existing riding consumers own seat placement.
+func (s *Server) refreshMobCollisionScaleFrame(e *Entity, adjustPosition bool) {
+	if !e.Living || e.Dying || e.dragon != nil {
 		return
 	}
 	name, _ := EntityTypeName(e.Type)
@@ -37,6 +47,9 @@ func (s *Server) refreshMobCollisionScale(e *Entity) {
 		return
 	}
 	e.mobCollisionScale = nextScale
+	if !adjustPosition {
+		return
+	}
 	after := entityBBDims(e)
 	for axis := range before {
 		before[axis] = float64(float32(before[axis]))

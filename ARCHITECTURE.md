@@ -1768,3 +1768,13 @@ focused fixtures preserve raw order and allow only those two exact pairs after
 independent target EOF and observer receipts, with strict counts/payloads and
 all other command comparisons ordered. Generic execute operator-echo policy
 and other administrative disconnect families remain separately scoped.
+
+
+Frozen player owner frames consume living collision-scale caches in admitted
+reciprocal riding graphs before the existing per-session seating pass. The
+callback runs once globally and preserves riding NPC anchors; a meaningful root
+resize can send its measured dirty movement without advancing tracker cadence.
+It does not run body counters, AI, effects, portal cooldown or the generic NPC
+seat-weld pass. Normal world frames retain their existing pipeline. Complete
+frozen mounted ticking, tracker periodicity and dynamic camel NPC seat geometry
+remain outside this measured callback scope.

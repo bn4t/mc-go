@@ -398,6 +398,14 @@ mount survival separately: source invulnerability and hurt cooldown rejection
 have different contact consequences. Match vehicle spawn IDs to actual saved
 UUIDs; requested UUID hydration is a separate behavior to measure.
 
+Capture passenger-list transitions on a separate, continuously unmounted admitted
+observer. Native passenger updates filter a recipient whose own membership in the
+old/new lists changed, so an unchanged former-rider capture does not establish an
+unlink failure. Keep both actual rider IDs and exact ordered links; with two
+riders, use a third observer and atomically compare its play_time with both
+riders and world age. Preserve authoritative on-vehicle and independent live
+position witnesses; do not resend the mount/unmount action to repair capture.
+
 
 Cross-dimension save/restart predicates must first observe the destination as
 loaded. Keep the original editor's dimension and pose intact when later commands

@@ -164,6 +164,11 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   For mount transitions, require actual passenger unlink and position receipts.
   Separate source invulnerability from hurt cooldown rejection, and bind vehicle
   client IDs to observed saved identity when requested summon UUID is unsupported.
+- Observe passenger-list transitions from a separate admitted client that stays
+  unmounted. Native filters recipients whose own membership changed; a stale
+  former-rider stream is not an unlink failure. Retain actual ordered rider IDs,
+  authoritative vehicle relations and independent live/saved views. For two
+  riders, use a third observer and compare all three admitted-frame counters.
 - Pair raw/effective attribute queries with the physical consumer outcome. For
   healing, clear prior instant effects and observe actual player ticks before
   asserting Health; raising a maximum alone does not heal.
