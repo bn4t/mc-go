@@ -1792,3 +1792,8 @@ synthesize an effect modifier. The independently measured raw summon retains
 an active effect without its modifier through an admitted body interval.
 Native movement trajectories, all NPC movement controllers, cold effect
 restoration and other effect attribute families remain separately scoped.
+
+Zombie melee chase resolves the entity's current movement-speed attribute,
+including base overrides and modifiers. A frozen same-zombie comparison pins
+positive motion and a faster Speed II window toward a stationary survival
+player. It does not certify other goals, controllers or whole trajectories.

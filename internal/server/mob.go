@@ -7269,7 +7269,9 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 		// zombie family (0.23) and 1.2 for the skeleton family
 		// (0.25 × 1.2 = 0.3).
 		chase := mobChaseSpeed
-		if mod, ok := mobMeleeSpeedMod[kn]; ok {
+		if kn == "zombie" {
+			chase = s.mobAttr(e, kn, "movement_speed", mobChaseSpeed)
+		} else if mod, ok := mobMeleeSpeedMod[kn]; ok {
 			chase = s.mobAttr(e, kn, "movement_speed", mobChaseSpeed) * mod
 		}
 		s.mobTravelStep(e, s.dimWorld(e.Dim), chase)
