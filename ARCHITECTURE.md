@@ -1777,9 +1777,13 @@ callback runs once globally and preserves riding NPC anchors; a meaningful root
 resize can send its measured dirty movement without advancing tracker cadence.
 The same graph admission advances ageable NPC growth and breeding cooldown once
 per frozen owner frame; frozen world steps independently select the current
-graph before the world body pass and skip its age phase. Fire, other body
-counters, AI, effects, portal cooldown and the generic NPC seat-weld pass
-remain outside this callback. Normal world frames retain their existing pipeline. Complete
+graph before the world body pass and skip its age phase. The same graph also
+advances positive portal cooldown once per owner frame, with frozen world steps
+skipping its cooldown phase. For a living nonriding root already on cooldown,
+static nether-portal contact rearms it according to its first passenger.
+Zero-cooldown portal entry and swept contact remain separate. Fire, other body
+counters, AI, effects and the generic NPC seat-weld pass remain outside this
+callback. Normal world frames retain their existing pipeline. Complete
 frozen mounted ticking, tracker periodicity and dynamic camel NPC seat geometry
 remain outside this measured callback scope.
 

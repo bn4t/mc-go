@@ -111,7 +111,31 @@ func isNetherPortal(b world.Block) bool {
 // portalCooldown by one per tick while positive. Non-living
 // entities (items, carts, projectiles) tick it the same way mobs
 // do, so the pass sweeps the whole entity table.
+// portalCooldownFrame is the shared base-frame cooldown operation. It leaves
+// zero and negative persisted values untouched.
+func portalCooldownFrame(e *Entity) {
+	if e.PortalCooldown > 0 {
+		e.PortalCooldown--
+	}
+}
+
+func frozenMountedPortalEligible(e *Entity) bool {
+	if e == nil || !e.Living || e.Dying || e.dragon != nil {
+		return false
+	}
+	name, _ := EntityTypeName(e.Type)
+	return name != "player"
+}
+
 func (s *Server) portalCooldownStep() {
+	// A frozen world step may run before the next owner frame. Select the
+	// graph now so a later player frame does not add a second body phase.
+	mounted := map[int32]bool{}
+	s.forEachFrozenMountedEntityOwned(func(e *Entity) {
+		if frozenMountedPortalEligible(e) {
+			mounted[e.ID] = true
+		}
+	})
 	s.entities.mu.RLock()
 	list := make([]*Entity, 0, len(s.entities.byID))
 	for _, e := range s.entities.byID {
@@ -119,11 +143,53 @@ func (s *Server) portalCooldownStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range list {
-		if e.presenceOnly {
+		if e.presenceOnly || mounted[e.ID] {
 			continue
 		}
-		if e.PortalCooldown > 0 {
-			e.PortalCooldown--
+		portalCooldownFrame(e)
+	}
+}
+
+// frozenMountedPortalContact handles the measured cooling root's contact
+// after its base frame. Riding entities cannot enter a nether portal. This is
+// only the positive-cooldown reset; portal entry at zero remains separate.
+func (s *Server) frozenMountedPortalContact(e *Entity) {
+	if e.Riding != 0 || e.Health <= 0 || e.PortalCooldown <= 0 {
+		return
+	}
+	w := s.dimWorld(e.Dim)
+	if w == nil {
+		return
+	}
+	dims := entityBBDims(e)
+	if dims[0] <= 0 || dims[1] <= 0 {
+		return
+	}
+	// Factual 26.2 inside-block inset is the widened float32 1e-5.
+	const margin = float64(float32(1e-5))
+	minX := int(math.Floor(e.X - dims[0]/2 + margin))
+	maxX := int(math.Floor(e.X + dims[0]/2 - margin))
+	minY := int(math.Floor(e.Y + margin))
+	maxY := int(math.Floor(e.Y + dims[1] - margin))
+	minZ := int(math.Floor(e.Z - dims[0]/2 + margin))
+	maxZ := int(math.Floor(e.Z + dims[0]/2 - margin))
+	for x := minX; x <= maxX; x++ {
+		for y := minY; y <= maxY; y++ {
+			for z := minZ; z <= maxZ; z++ {
+				if !isNetherPortal(w.GetBlock(world.Pos{X: x, Y: y, Z: z})) {
+					continue
+				}
+				delay := int32(300)
+				if len(e.Passengers) > 0 {
+					if first, ok := s.entities.GetPtr(e.Passengers[0]); ok {
+						if name, _ := EntityTypeName(first.Type); name == "player" {
+							delay = 10
+						}
+					}
+				}
+				e.PortalCooldown = delay
+				return
+			}
 		}
 	}
 }

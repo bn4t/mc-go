@@ -3,7 +3,7 @@ package server
 import "sort"
 
 // Frozen owner frames still consume dimensions in a player-mounted graph.
-// This callback also advances age, but not other body counters, effects or AI.
+// This callback advances age and portal cooldown, but not other body counters, effects or AI.
 // It runs once globally, before the existing per-player seating consumers.
 func (s *Server) frozenMountedScaleCallbacksOwned() {
 	if !s.clock.isFrozen() || s.clock.isSprinting() {
@@ -11,6 +11,9 @@ func (s *Server) frozenMountedScaleCallbacksOwned() {
 	}
 	s.forEachFrozenMountedEntityOwned(func(e *Entity) {
 		name, _ := EntityTypeName(e.Type)
+		if frozenMountedPortalEligible(e) {
+			portalCooldownFrame(e)
+		}
 		if e.Living && name != "player" {
 			before := [3]float64{e.X, e.Y, e.Z}
 			if !e.syncInit {
@@ -33,6 +36,7 @@ func (s *Server) frozenMountedScaleCallbacksOwned() {
 				s.broadcastEntityMetadata(e.ID, []byte{16, 8, 0, 0xff})
 				e.metaSent.baby = false
 			}
+			s.frozenMountedPortalContact(e)
 		}
 	})
 }

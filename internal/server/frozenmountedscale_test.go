@@ -25,7 +25,7 @@ func TestFrozenMountedScaleRootAndCadence(t *testing.T) {
 	if root.mobCollisionScale != 1.5 || root.Y != 161.40625 {
 		t.Fatalf("root cache%g position%g", root.mobCollisionScale, root.Y)
 	}
-	if root.SyncCount != 137 || root.TickCount != 0 || root.Age != 9999 || root.FireTicks != 9 || root.PortalCooldown != 11 {
+	if root.SyncCount != 137 || root.TickCount != 0 || root.Age != 9999 || root.FireTicks != 9 || root.PortalCooldown != 10 {
 		t.Fatalf("callback advanced unrelated body/tracker %+v", root)
 	}
 	if player.mobCollisionScale != 0 || secondPlayer.mobCollisionScale != 0 {
