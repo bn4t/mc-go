@@ -1756,3 +1756,15 @@ support, fractional placement, small gaps, zero gravity and levitation. The
 reconstruction models the measured standing survival envelope while the reported
 position is restored; full movement physics, retained vertical motion, impulses,
 flight, swept client paths and immediate packet transients remain separate.
+
+Kick replies carry the exact target session to omit from direct Java feedback
+and operator echoes. Java, RCON and source-frame echo paths preserve feedback
+to other recipients, independently of execute executor changes. A successful
+kick of the supported one named target has numeric result1 as well as success.
+Player retirement, saves and deferred transport cleanup keep their existing
+simulation ownership; this adds no generic closing-session suppression.
+Native kick/leave feedback can appear in either measured pair order. The
+focused fixtures preserve raw order and allow only those two exact pairs after
+independent target EOF and observer receipts, with strict counts/payloads and
+all other command comparisons ordered. Generic execute operator-echo policy
+and other administrative disconnect families remain separately scoped.

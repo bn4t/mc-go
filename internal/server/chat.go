@@ -277,16 +277,18 @@ func (s *Server) sendActionBar(sess *Session, c component) {
 // sendReply delivers whatever a command produced to its caller.
 func (s *Server) sendReply(sess *Session, r reply) {
 	if r.styled {
-		s.sendSystemChatComponent(sess, r.comp)
-		for _, c := range r.extra {
-			s.sendSystemChatComponent(sess, c)
+		if sess != r.omitFeedbackFor {
+			s.sendSystemChatComponent(sess, r.comp)
+			for _, c := range r.extra {
+				s.sendSystemChatComponent(sess, c)
+			}
 		}
 		if r.opsEcho {
-			s.sendOpsEcho(sess, r.comp)
+			s.sendOpsEcho(sess, r.comp, r.omitFeedbackFor)
 		}
 		for i, c := range r.extra {
 			if i < len(r.extraEcho) && r.extraEcho[i] {
-				s.sendOpsEcho(sess, c)
+				s.sendOpsEcho(sess, c, r.omitFeedbackFor)
 			}
 		}
 		return
@@ -310,19 +312,19 @@ func (s *Server) sendSystemChat(sess *Session, text string) {
 // send_command_feedback is on. from is the session whose command
 // produced the reply; nil is the server's own source, which is what
 // the sprint report broadcasts through.
-func (s *Server) sendOpsEcho(from *Session, c component) {
+func (s *Server) sendOpsEcho(from *Session, c component, excluded ...*Session) {
 	name := component{text: "Server"}
 	if from != nil {
 		// getDisplayName resolves at echo time, so a teammate is
 		// already shown in the team's dress — formatNameForTeam.
 		name = s.teamFormattedName(from)
 	}
-	s.sendOpsEchoNamed(from, name, c)
+	s.sendOpsEchoNamed(from, name, c, excluded...)
 }
 
 // sendOpsEchoNamed is sendOpsEcho with the source name chosen by the
 // caller — RCON reports as "RCON", the server's own source as "Server".
-func (s *Server) sendOpsEchoNamed(from *Session, name, c component) {
+func (s *Server) sendOpsEchoNamed(from *Session, name, c component, excluded ...*Session) {
 	if !s.gameRuleBool("minecraft:send_command_feedback") {
 		return
 	}
@@ -334,6 +336,11 @@ func (s *Server) sendOpsEchoNamed(from *Session, name, c component) {
 	}
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
+		for _, skip := range excluded {
+			if sess == skip {
+				return true
+			}
+		}
 		if sess.state.Load() != StatePlay || sess == from || !s.isOp(sess.getName()) {
 			return true
 		}

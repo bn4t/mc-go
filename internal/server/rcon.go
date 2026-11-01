@@ -193,11 +193,11 @@ func (s *Server) rconRunOwned(line string) string {
 	// RconConsoleSource is still a CommandSourceStack: a reply flagged
 	// broadcastToOps echoes to every op online as "[RCON: ...]".
 	if r.opsEcho {
-		s.sendOpsEchoNamed(nil, component{text: "RCON"}, r.comp)
+		s.sendOpsEchoNamed(nil, component{text: "RCON"}, r.comp, r.omitFeedbackFor)
 	}
 	for i, c := range r.extra {
 		if i < len(r.extraEcho) && r.extraEcho[i] {
-			s.sendOpsEchoNamed(nil, component{text: "RCON"}, c)
+			s.sendOpsEchoNamed(nil, component{text: "RCON"}, c, r.omitFeedbackFor)
 		}
 	}
 	if r.fail != nil {

@@ -125,8 +125,15 @@ func (s *Server) runKickCmd(player string, args []string) reply {
 	if len(args) > 1 {
 		reasonArg = nestedCompound{key: "", value: strings.Join(args[1:], " ")}
 	}
-	return opsEchoReply(translatable("commands.kick.success",
+	r := opsEchoReply(translatable("commands.kick.success",
 		playerChatComponent(target), reasonArg))
+	// Native does not deliver success after the target's disconnect. Keep
+	// other operators' echo and the command result, including self-kicks.
+	r.omitFeedbackFor = target
+	// This command currently admits one named target. Native execute-store
+	// observes its successful kick as numeric one as well as success.
+	r.result, r.hasResult = 1, true
+	return r
 }
 
 func (s *Server) runBan(player string, args []string) reply {

@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -88,26 +89,223 @@ func TestTpPlayerToPlayer(t *testing.T) {
 }
 
 func TestKickCommand(t *testing.T) {
-	s := New("unused")
-	sess, _ := enforceSession(t, s, "Warden")
+	for _, issuer := range []string{"Op", "Warden"} {
+		t.Run(issuer, func(t *testing.T) {
+			s := New("unused")
+			sess, _ := enforceSession(t, s, "Warden")
 
-	if out := s.runKickCmd("Op", nil); out.fail == nil {
-		t.Fatalf("kick usage = %+v", out)
+			if out := s.runKickCmd(issuer, nil); out.fail == nil {
+				t.Fatalf("kick usage = %+v", out)
+			}
+			if out := s.runKickCmd(issuer, []string{"Ghost"}); out.comp.translate != "" {
+				t.Fatalf("kick ghost = %+v", out)
+			}
+			out := s.runKickCmd(issuer, []string{"Warden", "griefing"})
+			if out.comp.translate != "commands.kick.success" || out.omitFeedbackFor != sess || out.outcome != commandSucceeded {
+				t.Fatalf("kick = %+v", out)
+			}
+			if issuer == "Warden" {
+				s.sendReply(sess, out)
+			}
+			select {
+			case pkt := <-sess.sendCh:
+				pkt = materializeOutboundPacket(t, sess, pkt)
+				if pkt.id != IDPlayDisconnect {
+					t.Fatalf("kick packet = %#x", pkt.id)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("no kick packet")
+			}
+			if !sess.closing.Load() {
+				t.Fatal("kick did not mark target closing")
+			}
+			// The fake transport has no reader. Model its deferred cleanup
+			// under the same owner, then prove repetition is harmless.
+			s.simulationAction(func() { s.untrack(sess) })
+			if !sess.untracked.Load() || !sess.playerRecord.left || sess.playerRecord.active.Load() {
+				t.Fatal("deferred cleanup did not retire kick target")
+			}
+			if _, exists := s.sessions.Load(sess.id); exists {
+				t.Fatal("kick target remains tracked")
+			}
+			if got := s.online.Load(); got != 0 {
+				t.Fatalf("online after kick = %d", got)
+			}
+			sess.statMu.Lock()
+			before := make(map[statKey]int32)
+			for k, v := range sess.stats.counts {
+				before[k] = v
+			}
+			sess.statMu.Unlock()
+			savedBefore := s.savedPlayers["Warden"]
+			// The eventual socket teardown must not repeat retirement, saved state
+			// or leave stats, including when the command issuer kicks itself.
+			s.simulationAction(func() { s.untrack(sess) })
+			if !reflect.DeepEqual(savedBefore, s.savedPlayers["Warden"]) {
+				t.Fatal("deferred untrack replaced saved player state")
+			}
+			sess.statMu.Lock()
+			defer sess.statMu.Unlock()
+			if len(before) != len(sess.stats.counts) {
+				t.Fatal("deferred untrack added stats")
+			}
+			for k, v := range before {
+				if sess.stats.counts[k] != v {
+					t.Fatalf("deferred untrack repeated stat %v", k)
+				}
+			}
+			if got := s.online.Load(); got != 0 {
+				t.Fatalf("online after deferred untrack = %d", got)
+			}
+
+		})
 	}
-	if out := s.runKickCmd("Op", []string{"Ghost"}); out.comp.translate != "" {
-		t.Fatalf("kick ghost = %+v", out)
+}
+
+// Changing the executor must not change the actual feedback recipient.
+func TestKickExecuteRecipientAndResult(t *testing.T) {
+	for _, executor := range []string{"P", "Q"} {
+		t.Run(executor, func(t *testing.T) {
+			s := New("unused")
+			p, _ := enforceSession(t, s, "P")
+			q, _ := enforceSession(t, s, "Q")
+			drain := func(sess *Session) {
+				for {
+					select {
+					case <-sess.sendCh:
+					default:
+						return
+					}
+				}
+			}
+			drain(p)
+			drain(q)
+			invoke := func(line string) reply {
+				var r reply
+				s.simulationAction(func() {
+					words := splitCommandArgs(line)
+					var known bool
+					r, known = s.runCommand("P", words[0], words[1:])
+					if !known {
+						t.Fatalf("unknown %s", line)
+					}
+				})
+				return r
+			}
+			invoke("scoreboard objectives add kickProof dummy")
+			r := invoke("execute as " + executor + " store result score result kickProof store success score success kickProof run kick Q reason")
+			if r.outcome == commandFailed || !q.closing.Load() || p.untracked.Load() {
+				t.Fatalf("execute kick state: %+v", r)
+			}
+			for _, holder := range []string{"result", "success"} {
+				got := invoke("scoreboard players get " + holder + " kickProof")
+				if !got.hasResult || got.result != 1 {
+					t.Fatalf("%s store = %+v", holder, got)
+				}
+			}
+			// Leave tracking packets may precede feedback; neither executor
+			// rebinding nor the target's removal may suppress P's success.
+			s.simulationAction(func() { s.sendReply(p, r) })
+			successes := 0
+			for len(p.sendCh) > 0 {
+				packet := materializeOutboundPacket(t, p, <-p.sendCh)
+				if packet.id != IDPlaySystemChatCB {
+					continue
+				}
+				root, err := nbt.ReadUnnamed(bytes.NewReader(packet.data))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if m, ok := root.(map[string]any); ok && m["translate"] == "commands.kick.success" {
+					successes++
+				}
+			}
+			if successes != 1 {
+				t.Fatalf("issuer kick feedback count%d", successes)
+			}
+		})
 	}
-	if out := s.runKickCmd("Op", []string{"Warden", "griefing"}); out.comp.translate != "commands.kick.success" {
-		t.Fatalf("kick = %+v", out)
-	}
-	select {
-	case pkt := <-sess.sendCh:
-		pkt = materializeOutboundPacket(t, sess, pkt)
-		if pkt.id != IDPlayDisconnect {
-			t.Fatalf("kick packet = %#x", pkt.id)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("no kick packet")
+}
+
+func TestKickFeedbackRecipientExclusion(t *testing.T) {
+	for _, source := range []string{"direct", "execute", "rcon"} {
+		t.Run(source, func(t *testing.T) {
+			s := New("unused")
+			p, _ := enforceSession(t, s, "P")
+			q, _ := enforceSession(t, s, "Q")
+			observer, _ := enforceSession(t, s, "R")
+			s.ops = map[string]int{"P": 4, "Q": 4, "R": 4}
+			for _, sess := range []*Session{p, q, observer} {
+				for len(sess.sendCh) > 0 {
+					<-sess.sendCh
+				}
+			}
+			s.simulationAction(func() {
+				if source == "rcon" {
+					if text := s.rconRunOwned("kick Q reason"); !strings.Contains(text, "Q") {
+						t.Fatalf("RCON feedback %q", text)
+					}
+					return
+				}
+				command := "kick Q reason"
+				if source == "execute" {
+					command = "execute as Q run kick Q reason"
+				}
+				words := splitCommandArgs(command)
+				r, known := s.runCommand("P", words[0], words[1:])
+				if !known {
+					t.Fatal("unknown kick")
+				}
+				s.sendReply(p, r)
+			})
+			if _, ok := s.sessions.Load(q.id); !ok {
+				t.Fatal("kick unexpectedly changed deferred transport cleanup")
+			}
+			chats := func(sess *Session) (direct, admin, disconnects int) {
+				for len(sess.sendCh) > 0 {
+					packet := materializeOutboundPacket(t, sess, <-sess.sendCh)
+					if packet.id == IDPlayDisconnect {
+						disconnects++
+						continue
+					}
+					if packet.id != IDPlaySystemChatCB {
+						continue
+					}
+					root, err := nbt.ReadUnnamed(bytes.NewReader(packet.data))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if m, ok := root.(map[string]any); ok {
+						switch m["translate"] {
+						case "commands.kick.success":
+							direct++
+						case "chat.type.admin":
+							admin++
+						}
+					}
+				}
+				return
+			}
+			direct, admin, disconnects := chats(q)
+			if direct != 0 || admin != 0 || disconnects != 1 {
+				t.Fatalf("target feedback direct%d admin%d disconnect%d", direct, admin, disconnects)
+			}
+			direct, admin, _ = chats(p)
+			if source == "rcon" {
+				if direct != 0 || admin != 1 {
+					t.Fatalf("P RCON observer direct%d admin%d", direct, admin)
+				}
+			} else if direct != 1 || admin != 0 {
+				t.Fatalf("P issuer direct%d admin%d", direct, admin)
+			}
+			direct, admin, _ = chats(observer)
+			// Execute's existing operator-echo policy is outside this recipient
+			// control; its proven contract here is P feedback and Q exclusion.
+			if direct != 0 || source != "execute" && admin != 1 {
+				t.Fatalf("R observer direct%d admin%d", direct, admin)
+			}
+			s.simulationAction(func() { s.untrack(q); s.untrack(q) })
+		})
 	}
 }
 

@@ -18,9 +18,13 @@ const (
 // as translatable components, so a command can answer with a component
 // tree; plugins answer with plain text, which is sent as a string.
 type reply struct {
-	comp   component
-	styled bool
-	text   string
+	// omitFeedbackFor identifies a kick target that receives no feedback
+	// after its disconnect, directly or as an operator. Executor/source
+	// rebinding must not suppress feedback to a different issuing session.
+	omitFeedbackFor *Session
+	comp            component
+	styled          bool
+	text            string
 	// extra holds follow-up messages, for commands whose reply is more
 	// than one line.
 	extra []component

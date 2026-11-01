@@ -94,7 +94,7 @@ func (s *Server) finishSourceCommand(source *commandSourceFrame, name string, be
 			source.output(c)
 		}
 		if echo && source.admin && !failure && s.gameRuleBool("minecraft:command_block_output") {
-			s.sendOpsEchoNamed(nil, source.display, c)
+			s.sendOpsEchoNamed(nil, source.display, c, r.omitFeedbackFor)
 		}
 	}
 	if r.styled {
