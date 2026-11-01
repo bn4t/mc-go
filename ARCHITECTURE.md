@@ -1684,16 +1684,17 @@ and cold reload from a completed-save copy made before shutdown. Chest, barrel
 and furnace ingress remain independent controls. This does not claim other
 hopper NBT fields, redstone transitions or latent-loot restart parity. Execute biome conditions now use the existing zoomed lookup for
 the bound dimension and parsed position, including edited quart boundaries and
-generated terrain. Biome conditions resolve local caret triples through the
+generated terrain. Block and biome conditions resolve local caret triples through the
 existing source-rotation math and cached executor eye height, then floor the
 exact result to a block position. Ordinary integer and relative block positions
 retain their existing parser. Native comparisons distinguish seven rotated
 local targets from absolute/relative references and source negatives, eye/feet
 anchors, positioned anchor reset and dimension/coordinate-scale order. The new
 local path rejects mixed triples and native-invalid nonfinite, exponent and
-leading-plus spellings with bounded typed-error controls. Other block-position
-consumers, complete error cursor ranges, biome tags and unloaded-query errors
-remain separate.
+leading-plus spellings with bounded typed-error controls. The block condition retains its bound-dimension and unavailable-column guards,
+and its tag, state and block-entity predicates work with local positions. Other
+block-position consumers, complete error cursor ranges, biome tags and biome
+unloaded-query errors remain separate.
 
 Living attachment scale follows consumed dimensions independently of raw
 attribute values. Passenger vectors and vertical rider points retain double

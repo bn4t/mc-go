@@ -240,7 +240,7 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 	switch args[0] {
 	case "block":
 		// if block <x> <y> <z> <block predicate>
-		x, y, z, cerr := blockPosArgs(args, bx, by, bz, tokBase)
+		pos, cerr := s.executeSourceBlockPosition(ctx, args, bx, by, bz, tokBase)
 		if cerr != nil {
 			return 0, false, 0, false, cerr
 		}
@@ -253,8 +253,8 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 			if perr != nil {
 				return 0, false, 0, false, perr
 			}
-			if ctx.alive && s.executeBlockReadReady(ctx, world.Pos{X: x, Y: y, Z: z}) {
-				cond = predicate.matches(s, ctx.dim, world.Pos{X: x, Y: y, Z: z})
+			if ctx.alive && s.executeBlockReadReady(ctx, pos) {
+				cond = predicate.matches(s, ctx.dim, pos)
 			}
 			return 5, cond, 0, false, nil
 		}
@@ -262,8 +262,7 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 		if perr != nil {
 			return 0, false, 0, false, perr
 		}
-		if ctx.alive && s.executeBlockReadReady(ctx, world.Pos{X: x, Y: y, Z: z}) {
-			pos := world.Pos{X: x, Y: y, Z: z}
+		if ctx.alive && s.executeBlockReadReady(ctx, pos) {
 			cond = s.matchesBlockPredicate(ctx.dim, pos, blk, props)
 			if cond && pattern != nil {
 				cond = s.blockPredicateNBTMatches(ctx.dim, pos, pattern)
@@ -335,7 +334,7 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 			r := textReply("Usage: /execute if biome <x> <y> <z> <biome>")
 			return 0, false, 0, false, &r
 		}
-		pos, berr := s.executeBiomeBlockPosition(ctx, args, bx, by, bz, tokBase)
+		pos, berr := s.executeSourceBlockPosition(ctx, args, bx, by, bz, tokBase)
 		if berr != nil {
 			return 0, false, 0, false, berr
 		}
@@ -385,9 +384,10 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 	}
 }
 
-// executeBiomeBlockPosition keeps ordinary block coordinates on the integer
+// executeSourceBlockPosition serves block and biome conditions. It keeps ordinary
+// block coordinates on the integer
 // parser, and resolves a local triple in the exact source frame before flooring.
-func (s *Server) executeBiomeBlockPosition(ctx *executeContext, args []string, bx, by, bz, tokBase int) (world.Pos, *reply) {
+func (s *Server) executeSourceBlockPosition(ctx *executeContext, args []string, bx, by, bz, tokBase int) (world.Pos, *reply) {
 	local := false
 	for k := 1; k < len(args) && k <= 3; k++ {
 		local = local || strings.HasPrefix(args[k], "^")

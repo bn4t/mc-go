@@ -27,23 +27,23 @@ func TestExecuteBiomeLocalBlockCoordinates(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			ctx := &executeContext{pos: row.origin, rotation: row.rotation}
 			args := append([]string{"biome"}, strings.Fields(row.coords)...)
-			got, r := s.executeBiomeBlockPosition(ctx, args, 0, 0, 0, 0)
+			got, r := s.executeSourceBlockPosition(ctx, args, 0, 0, 0, 0)
 			if r != nil || got != row.want {
 				t.Fatalf("position%+v reply%+v want%+v", got, r, row.want)
 			}
 		})
 	}
 	ctx := &executeContext{pos: [3]float64{8.5, -59.12, 11.5}, anchorEyes: true, ent: &dataEntity{sess: &Session{collisionScale: 1}}}
-	got, r := s.executeBiomeBlockPosition(ctx, []string{"biome", "^", "^", "^"}, 8, -60, 11, 0)
+	got, r := s.executeSourceBlockPosition(ctx, []string{"biome", "^", "^", "^"}, 8, -60, 11, 0)
 	if r != nil || got != (world.Pos{X: 8, Y: -58, Z: 11}) {
 		t.Fatalf("eye anchor%+v reply%+v", got, r)
 	}
-	got, r = s.executeBiomeBlockPosition(ctx, []string{"biome", "8", "-60", "11"}, 8, -60, 11, 0)
+	got, r = s.executeSourceBlockPosition(ctx, []string{"biome", "8", "-60", "11"}, 8, -60, 11, 0)
 	if r != nil || got != (world.Pos{X: 8, Y: -60, Z: 11}) {
 		t.Fatalf("literal anchor%+v reply%+v", got, r)
 	}
 	for _, coords := range []string{"^ ~ ^", "~ ^ ~", "^no ^ ^", "^NaN ^ ^", "^ ^Inf ^", "^ ^ ^-Inf", "^1e2 ^ ^", "^ ^ ^1.5e-1", "^+1 ^ ^"} {
-		_, r := s.executeBiomeBlockPosition(ctx, append([]string{"biome"}, strings.Fields(coords)...), 8, -60, 11, 0)
+		_, r := s.executeSourceBlockPosition(ctx, append([]string{"biome"}, strings.Fields(coords)...), 8, -60, 11, 0)
 		if r == nil {
 			t.Fatalf("invalid local triple accepted%s", coords)
 		}
