@@ -119,7 +119,8 @@ Mojang server over the wire.
       ruins with their large/cluster pieces, archaeology blocks and
       underwater ruin chests, and the flat-safe jungle/swamp/desert ruined-portal
       setups with their chests, flat/standard-normal overworld ocean portals with
-      original-generator coldness and resident-heightmap controls, and the nether fortress bridge/castle pieces
+      original-generator coldness and resident-heightmap controls, standard-normal
+      surface and selected underground portal setups, and the nether fortress bridge/castle pieces
       with their chests and blaze spawners included). Other structure-generated
       entities, other explicit structures and spawn overrides remain
       incomplete.
@@ -20312,3 +20313,12 @@ Provenance: private base33ad231; official extracted 26.2 jar SHA256183c0499c5f85
 - **Pinned:** The identical fixture passes native 2.83s and Go 2.86s, total 22.08s, covering both condition polarities, source/target contrast, negative coordinates and invalid keys; an independent provider control asserts a missing local query does not generate a column. On the 4677238 export, the loaded fixture passes native 3.18s/Go 1.68s, block passes 9.87s/3.64s and biome passes 8.64s/2.55s; the provider no-generation unit passes. Other position consumers, complete numeric/error cursor grammar and neutral-executor eye anchors remain outside this slice.
 
 Native source of truth is official Minecraft Java Edition 26.2/protocol 776: distribution SHA-256 `cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5`, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supply the observations; no native implementation bodies were copied.
+
+
+## Slice — standard underground ruined portal placement (2026-11-01)
+
+- **Measured:** Native seed4096 selects underground portal_10 at origin (0,17,0), with loot chest (4,18,-3), 11 obsidian, 2 crying obsidian, 17 lava and 701 newly carved air blocks; native baseline has 3 magma blocks, not zero. Both original and live-snowy stages retain the exact outcomes, while debris amounts vary. Before implementation, the final identical fixture passes native 10.70s and fails Go 51.12s at the unsupported placement result. Native 26.2 class inspection establishes that underground uses WORLD_SURFACE_WG for the generator base-height and piece surface queries, original generator base columns for vertical support and generator biome-source coldness at the finalized position; only ocean-floor selects OCEAN_FLOOR_WG. Observations and bytecode fact logs are retained in ignored `work/standard-underground-*`.
+- **Implemented:** Allow the already selected underground setup in the matching standard normal overworld, retaining its existing random draws, height/biome source, template processing and detached placement path. Other source contexts remain unsupported; no setup resampling or natural structure-cache registration is added.
+- **Pinned:** The final identical fixture passes native 7.75s / Go 42.00s (62.99s total), pinning original and edited snowy stages, exact material and air counts, positively witnessed stone-to-air cells, loot chest and magma above the three-block baseline. Existing standard surface passes 142.53s, normal ocean passes 152.22s and flat cold/warm ocean passes 39.15s; full worldgen and focused source tests pass. Default vet and tagged/unit test compilation pass. Source artifact SHA-256 `a884eaee815d926733edef97c2228d353ab0e5b73c95e5cd53b3edfc5c36d169`. Focused planner tests pin template/origin, selected placement, original warm biome and WORLD_SURFACE_WG lookup, while preserving unsupported source controls. This selected seed/template evidence does not establish all underground seeds, templates, generator settings, dimensions or untouched whole-terrain parity.
+
+Native provenance: official Minecraft Java Edition 26.2/protocol 776 distribution SHA-256 `cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5`, runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands, saved blocks and factual class inspection supplied the observations; no native implementation bodies were copied.

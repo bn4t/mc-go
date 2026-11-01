@@ -51,9 +51,8 @@ func TestCommandStandardPortalSurfaceSource(t *testing.T) {
 	}
 }
 
-func TestCommandStandardPortalUnsupportedSetup(t *testing.T) {
-	// Independently inspect the selected existing builder to ensure that the
-	// command rejects underground rather than drawing a replacement surface.
+func TestCommandStandardPortalUndergroundSource(t *testing.T) {
+	// Inspect the selected builder, then require the command to retain it.
 	g, err := NewGenerator(Vanilla(), "overworld", "overworld", 4096)
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +71,25 @@ func TestCommandStandardPortalUnsupportedSetup(t *testing.T) {
 			t.Fatalf("selected setup%+v", p)
 		}
 	})
-	for _, src := range []CommandStructureSource{{NormalOverworld: true}, {}, {FlatBiome: "plains"}} {
+	var heights []int
+	baseHeight := func(x, z int32, kind int) int32 { heights = append(heights, kind); return g.BaseHeight(x, z, kind) }
+	plan, err := PlanCommandStructure(Vanilla(), 4096, "ruined_portal", 0, 0, -64, 384, 63, baseHeight, CommandStructureSource{NormalOverworld: true})
+	if err != nil || plan == nil {
+		t.Fatalf("underground plan %v err %v", plan, err)
+	}
+	p := plan.start.Pieces[0].(*ruinedPortalPiece)
+	if p.placement != rpUnderground || p.pos != (BlockPos{0, 17, 0}) || p.name != "minecraft:ruined_portal/portal_10" || p.props.cold || !plan.lazyWG {
+		t.Fatalf("selected piece %+v", p)
+	}
+	if len(heights) == 0 {
+		t.Fatal("no base height lookup")
+	}
+	for _, kind := range heights {
+		if kind != HMWorldSurfaceWG {
+			t.Fatalf("unexpected base height type %d", kind)
+		}
+	}
+	for _, src := range []CommandStructureSource{{}, {FlatBiome: "plains"}} {
 		plan, err := PlanCommandStructure(Vanilla(), 4096, "ruined_portal", 0, 0, -64, 384, 63, g.BaseHeight, src)
 		if err != nil || plan != nil {
 			t.Fatalf("unsupported plan%v err%v", plan, err)

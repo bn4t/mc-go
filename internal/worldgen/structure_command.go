@@ -19,7 +19,7 @@ type CommandStructurePlan struct {
 // ocean/beached template pass, the ocean ruins' cold/warm template
 // passes, the jungle/swamp/desert ruined-portal setups, the ocean portal
 // with measured flat/normal-overworld generator context and the
-// standard portal's measured normal-overworld surface setup, and the
+// standard portal's measured normal-overworld surface and underground setups, and the
 // nether fortress pieces are included.
 var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true, "igloo": true, "shipwreck": true, "shipwreck_beached": true, "ocean_ruin_cold": true, "ocean_ruin_warm": true, "ruined_portal_jungle": true, "ruined_portal_swamp": true, "fortress": true, "ruined_portal_desert": true, "ruined_portal_ocean": true, "ruined_portal": true}
 
@@ -80,12 +80,12 @@ func PlanCommandStructure(data Data, seed int64, name string, cx, cz, minY, heig
 	if len(start.Pieces) == 0 {
 		return nil, nil
 	}
-	// Preserve the selected setup and its random draws. Underground commands
-	// have not been measured; never resample them into the supported route.
+	// Preserve the selected setup and its random draws; do not resample other
+	// placements into a supported route.
 	if name == "ruined_portal" {
 		for _, piece := range start.Pieces {
 			portal, ok := piece.(*ruinedPortalPiece)
-			if !ok || portal.placement != rpOnLandSurface {
+			if !ok || (portal.placement != rpOnLandSurface && portal.placement != rpUnderground) {
 				return nil, nil
 			}
 		}

@@ -1518,7 +1518,7 @@ Common native item persistence now writes modeled explosions and rockets, includ
 Common native item persistence writes and recognizes the existing complete Ominous banner aggregate. Its canonical four components preserve the eight ordered layers. Full recognition clears duplicate generic patterns; incomplete aggregates keep their supported generic representation. Arbitrary custom metadata preservation remains incomplete.
 
 
-Explicit /place structure supports swamp huts, desert pyramids, jungle temples, igloos, ocean/beached shipwrecks, cold/warm ocean ruins, the flat-safe jungle/swamp/desert ruined portals, flat/standard-normal overworld ocean portals, the standard normal-overworld portal's selected surface setup and nether fortresses. It validates the command source position and covered chunk readiness, builds an unregistered plan over detached live blocks, applies ordered writes, installs generated block entities and admits persistent residents. The planner receives the level generator's sea level and flat top height, and each chunk's postProcess and region stream come from the level random source, as PlaceCommand does; the jungle temple's moss selector, the pyramid's cellar/roof and the beached shipwreck's sink therefore vary per placement. Command chunk snapshots are built with NewProtoChunk and filled through ProtoChunk.Set so WORLD_SURFACE_WG and OCEAN_FLOOR_WG track live blocks below y=0 as well; template pieces such as the igloo and shipwreck sample them while placing. Natural structure caches remain untouched. Command cat finalization observes registered hut context and moon phase separately from natural hut generation. Other structures and broader coordinate/dimension semantics remain incomplete.
+Explicit /place structure supports swamp huts, desert pyramids, jungle temples, igloos, ocean/beached shipwrecks, cold/warm ocean ruins, the flat-safe jungle/swamp/desert ruined portals, flat/standard-normal overworld ocean portals, the standard normal-overworld portal's selected surface and underground setups and nether fortresses. It validates the command source position and covered chunk readiness, builds an unregistered plan over detached live blocks, applies ordered writes, installs generated block entities and admits persistent residents. The planner receives the level generator's sea level and flat top height, and each chunk's postProcess and region stream come from the level random source, as PlaceCommand does; the jungle temple's moss selector, the pyramid's cellar/roof and the beached shipwreck's sink therefore vary per placement. Command chunk snapshots are built with NewProtoChunk and filled through ProtoChunk.Set so WORLD_SURFACE_WG and OCEAN_FLOOR_WG track live blocks below y=0 as well; template pieces such as the igloo and shipwreck sample them while placing. Natural structure caches remain untouched. Command cat finalization observes registered hut context and moon phase separately from natural hut generation. Other structures and broader coordinate/dimension semantics remain incomplete.
 
 Fill commands deliver the actual changed count to result callbacks, zero for
 runtime failure, and no numeric completion for syntax rejection. Endpoint FULL
@@ -1706,7 +1706,7 @@ seats remain separate from direct-vehicle X/Z in serialized Pos. Other class,
 baby, pose and seat policies, nonzero yaw and frozen-vehicle ticking remain
 partial. The ordinary boat saved/live-position regression remains pinned.
 
-Normal ocean-portal and supported standard surface-portal commands lazily sample
+Normal ocean-portal and supported standard portal commands lazily sample
 FULL-chunk worldgen heightmaps after
 prior ordered placement writes. Samples survive later commands, block edits and
 saves on the same resident BaseChunk; weak identity keys allow replacement and
@@ -1722,13 +1722,13 @@ low frame. This generated-decoration gap remains unresolved; the controlled
 fixture establishes matched-input placement, not untouched whole-terrain parity.
 
 The standard ruined portal is supported only when its original weighted selection
-chooses on_land_surface in a matching standard normal overworld. It receives the
+chooses on_land_surface or underground in a matching standard normal overworld. It receives the
 actual generator seed, including zero, and retains WORLD_SURFACE_WG separately
 from the ocean portal's OCEAN_FLOOR_WG. Generator biome coldness is independent of
-live biome edits. Selected underground setups are rejected after selection,
-without resampling; seed4096 pins that unsupported branch. Actual normal seeds0
-and1 pin surface origin, frame, loot chest and warm processed materials before
-and after live snowy edits. Other source settings/dimensions and whole-terrain,
+live biome edits. The selected underground branch retains the same random draws, generator base
+columns and original biome source. Seed4096 pins its origin, carved air, frame,
+lava, loot chest and processed magma both before and after a live snowy edit.
+Actual normal seeds0 and1 pin the surface branch. Other source settings/dimensions and whole-terrain,
 all-template/seed or native physical-unload parity remain unclaimed.
 
 Persisted creepers restore powered and ignited state with signed fuse/radius
