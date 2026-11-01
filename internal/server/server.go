@@ -436,6 +436,7 @@ func New(addr string) *Server {
 		// the mc-go binary sets survival from -gamemode.
 		GameMode:           GameModeCreative,
 		GenerateStructures: true,
+		WorldSeed:          1,
 		difficulty:         DifficultyNormal,
 		gameRules:          defaultGameRules(),
 		ops:                map[string]int{},

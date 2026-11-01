@@ -341,7 +341,11 @@ Run it like the real server instead: put a `server.properties` in the
 every missing key with vanilla's default and rewrites it the way the
 real server does. Its world is then the vanilla-layout directory
 `level-name` (default `world`), generated (`level-type`, `level-seed`)
-on first start; `server-port`, `motd`, `max-players`, `online-mode`,
+on first start. A saved world’s valid generator seed, including zero, takes
+precedence over later `-seed` and `level-seed` settings. The public `server.New`
+default is seed 1; assigning `WorldSeed = 0` explicitly uses zero. This changes
+the in-process normal generator’s former implicit seed 0 to 1. `server-port`,
+`motd`, `max-players`, `online-mode`,
 `gamemode`, `difficulty`, the view/simulation distances, RCON and query
 come from the file. Command-line flags still win over it.
 

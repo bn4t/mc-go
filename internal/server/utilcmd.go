@@ -86,15 +86,8 @@ func (s *Server) runDifficulty(args []string) reply {
 	return opsEchoReply(translatable("commands.difficulty.success", translatable("options.difficulty."+args[0])))
 }
 
-// worldSeed reports the seed the world was generated with: the
-// configured WorldSeed when one is set, else the flat generator's
-// fixed seed.
-func (s *Server) worldSeed() int64 {
-	if s.WorldSeed != 0 {
-		return s.WorldSeed
-	}
-	return 1
-}
+// worldSeed is the configured or restored generator seed, including zero.
+func (s *Server) worldSeed() int64 { return s.WorldSeed }
 
 // runSeed implements /seed: the world seed as a green bracketed
 // component that copies itself on click, wrapped in

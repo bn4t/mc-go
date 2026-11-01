@@ -200,7 +200,7 @@ func (s *Server) loadWorldDir() error {
 		if lv.LevelName != "" && s.LevelName == "" {
 			s.LevelName = lv.LevelName
 		}
-		if lv.Seed != 0 && s.WorldSeed == 0 {
+		if lv.HasSeed {
 			s.WorldSeed = lv.Seed
 		}
 		if s.LevelType == "" && lv.Generator != "" {

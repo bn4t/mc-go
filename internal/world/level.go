@@ -52,7 +52,9 @@ type LevelData struct {
 	Difficulty string
 	// Seed and GenerateStructures describe the flat overworld the
 	// generator settings file declares.
-	Seed               int64
+	Seed int64
+	// HasSeed reports a valid long seed read from saved generator settings.
+	HasSeed            bool
 	GenerateStructures bool
 	// Generator is the overworld generator: "" or "flat" for the flat
 	// preset, "normal" for the noise generator with the overworld
@@ -415,6 +417,7 @@ func ReadLevel(dir string) (LevelData, error) {
 		if payload, ok := savedDataPayload(root); ok {
 			if seed, ok := payload["seed"].(int64); ok {
 				out.Seed = seed
+				out.HasSeed = true
 			}
 			if gen, ok := payload["generate_structures"].(int8); ok {
 				out.GenerateStructures = gen != 0
