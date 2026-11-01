@@ -358,15 +358,15 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 	case "loaded":
 		// if loaded <x> <y> <z> — true while the column is live in the
 		// dimension, which for mc-go means a play session tracks it.
-		x, _, z, cerr := blockPosArgs(args, bx, by, bz, tokBase)
+		pos, cerr := s.executeSourceBlockPosition(ctx, args, bx, by, bz, tokBase)
 		if cerr != nil {
 			return 0, false, 0, false, cerr
 		}
 		if ctx.alive {
-			if available, known := s.scheduledPositionAvailable(ctx.dim, x>>4, z>>4, true); known {
+			if available, known := s.scheduledPositionAvailable(ctx.dim, pos.X>>4, pos.Z>>4, true); known {
 				cond = available
 			} else {
-				cond = s.chunkLoaded(ctx.dim, x>>4, z>>4)
+				cond = s.chunkLoaded(ctx.dim, pos.X>>4, pos.Z>>4)
 			}
 		}
 		return 4, cond, 0, false, nil
@@ -384,9 +384,8 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 	}
 }
 
-// executeSourceBlockPosition serves block and biome conditions. It keeps ordinary
-// block coordinates on the integer
-// parser, and resolves a local triple in the exact source frame before flooring.
+// executeSourceBlockPosition serves block, biome and loaded conditions. It keeps ordinary
+// block coordinates on the integer parser, and resolves a local triple in the exact source frame before flooring.
 func (s *Server) executeSourceBlockPosition(ctx *executeContext, args []string, bx, by, bz, tokBase int) (world.Pos, *reply) {
 	local := false
 	for k := 1; k < len(args) && k <= 3; k++ {

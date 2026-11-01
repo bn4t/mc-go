@@ -230,8 +230,8 @@ corner unload or `/reload`; unreadable generated NBT can fall back to bundled
 templates. Complete datapack selection and reload coverage remains partial.
 
 Execute if/unless block, fill replace and clone filtered support built-in block
-tags, member properties and typed nested block-entity NBT subsets. Execute block
-and biome conditions also resolve local caret positions in the command source frame. Clone also
+tags, member properties and typed nested block-entity NBT subsets. Execute block, biome and loaded conditions also resolve local caret positions
+in the command source frame. Clone also
 preserves measured native block-entity payloads and supported item components
 across copies, moves and overlapping force copies. Barrel native data access
 uses its live container storage, including supported stored item components. Strict clone suppresses callbacks and shape updates at destinations and moved

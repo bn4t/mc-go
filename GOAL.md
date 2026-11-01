@@ -20303,3 +20303,12 @@ Native source of truth is official Minecraft Java Edition 26.2/protocol 776: dis
 This is cached scale/collision callback coverage, not full frozen mounted-body ticking. Age, fire, portal cooldown, AI/effect deadlines and global tracker periodicity remain incomplete; the observed body-counter defect is preserved separately. Existing dynamic camel NPC seat geometry and NPC-first/player-promotion ordering also remain outside this patch. Saved mounted X/Z still follow the direct live vehicle and are not live-seat evidence.
 
 Provenance: private base33ad231; official extracted 26.2 jar SHA256183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8; Go1.27.3 /Temurin25.0.5+8. Native wire/command/live-marker observations plus factual recipient-filter inspection; no native implementation body copied.
+
+
+## Slice — execute loaded local coordinates (2026-11-01)
+
+- **Measured:** Identical fixture on baseline bcb96f7 passes native 1.82s and fails Go 1.43s. A local target in a loaded column is tested from an unloaded source, and an unloaded target from a loaded source; absolute and relative witnesses establish both columns. A negative source and yaw reversal cover coordinate direction. Mixed and invalid numeric triples require native typed error keys and no executed leaf.
+- **Implemented:** Execute if/unless loaded resolves local positions through the existing block/biome source-frame resolver before querying the bound dimension's column. Integer and relative positions and availability policy remain unchanged.
+- **Pinned:** The identical fixture passes native 2.83s and Go 2.86s, total 22.08s, covering both condition polarities, source/target contrast, negative coordinates and invalid keys; an independent provider control asserts a missing local query does not generate a column. On the 4677238 export, the loaded fixture passes native 3.18s/Go 1.68s, block passes 9.87s/3.64s and biome passes 8.64s/2.55s; the provider no-generation unit passes. Other position consumers, complete numeric/error cursor grammar and neutral-executor eye anchors remain outside this slice.
+
+Native source of truth is official Minecraft Java Edition 26.2/protocol 776: distribution SHA-256 `cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5`, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supply the observations; no native implementation bodies were copied.
