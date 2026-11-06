@@ -38,17 +38,26 @@ func (s *Server) runData(player string, args []string) reply {
 	}
 	d := s.dimOf(player)
 	bx, by, bz := s.baseBlockPos(player)
-	x, err := parseCoord(args[2], bx)
-	if err != nil {
-		return componentReply(commandError("command.unknown.command"))
-	}
-	y, err := parseCoord(args[3], by)
-	if err != nil {
-		return componentReply(commandError("command.unknown.command"))
-	}
-	z, err := parseCoord(args[4], bz)
-	if err != nil {
-		return componentReply(commandError("command.unknown.command"))
+	var x, y, z int
+	if pos, r, local := s.commandLocalBlockPos(player, args[2:], 3); local {
+		if r != nil {
+			return *r
+		}
+		x, y, z = pos.X, pos.Y, pos.Z
+	} else {
+		var err error
+		x, err = parseCoord(args[2], bx)
+		if err != nil {
+			return componentReply(commandError("command.unknown.command"))
+		}
+		y, err = parseCoord(args[3], by)
+		if err != nil {
+			return componentReply(commandError("command.unknown.command"))
+		}
+		z, err = parseCoord(args[4], bz)
+		if err != nil {
+			return componentReply(commandError("command.unknown.command"))
+		}
 	}
 	pos := world.Pos{X: x, Y: y, Z: z}
 
@@ -148,7 +157,7 @@ func (s *Server) runData(player string, args []string) reply {
 			insertIdx = v
 			rest = rest[1:]
 		}
-		val, serr := s.modifySource(player, rest)
+		val, serr := s.modifySource(player, rest, 8)
 		if serr != nil {
 			return *serr
 		}

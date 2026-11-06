@@ -137,7 +137,7 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 			insertIdx = v
 			rest = rest[1:]
 		}
-		val, serr := s.modifySource(player, rest)
+		val, serr := s.modifySource(player, rest, 6)
 		if serr != nil {
 			return *serr
 		}
@@ -154,7 +154,7 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 // `from`/`string` <entity sel|block x y z|storage id> [path]. `string`
 // needs the resolved value to be a string tag — anything else throws
 // commands.data.modify.expected_value with the value's SNBT form.
-func (s *Server) modifySource(player string, args []string) (any, *reply) {
+func (s *Server) modifySource(player string, args []string, tokBase int) (any, *reply) {
 	if len(args) < 2 {
 		r := componentReply(commandError("command.unknown.command"))
 		return nil, &r
@@ -196,12 +196,21 @@ func (s *Server) modifySource(player string, args []string) (any, *reply) {
 			}
 			d := s.dimOf(player)
 			bx, by, bz := s.baseBlockPos(player)
-			x, err1 := parseCoord(args[2], bx)
-			y, err2 := parseCoord(args[3], by)
-			z, err3 := parseCoord(args[4], bz)
-			if err1 != nil || err2 != nil || err3 != nil {
-				r := componentReply(commandError("command.unknown.command"))
-				return nil, &r
+			var x, y, z int
+			if pos, r, local := s.commandLocalBlockPos(player, args[2:], tokBase+2); local {
+				if r != nil {
+					return nil, r
+				}
+				x, y, z = pos.X, pos.Y, pos.Z
+			} else {
+				var err1, err2, err3 error
+				x, err1 = parseCoord(args[2], bx)
+				y, err2 = parseCoord(args[3], by)
+				z, err3 = parseCoord(args[4], bz)
+				if err1 != nil || err2 != nil || err3 != nil {
+					r := componentReply(commandError("command.unknown.command"))
+					return nil, &r
+				}
 			}
 			be, ok := s.blockEntitySaveMap(d, world.Pos{X: x, Y: y, Z: z})
 			if !ok {

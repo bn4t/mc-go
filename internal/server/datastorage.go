@@ -84,7 +84,7 @@ func (s *Server) runDataStorage(player string, args []string) reply {
 			insertIdx = v
 			rest = rest[1:]
 		}
-		val, serr := s.modifySource(player, rest)
+		val, serr := s.modifySource(player, rest, 6)
 		if serr != nil {
 			return *serr
 		}

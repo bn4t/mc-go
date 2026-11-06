@@ -603,18 +603,26 @@ func (s *Server) runItem(player string, args []string) reply {
 }
 
 // itemBlockPos parses the three coordinates of a block target, resolved
-// against the sender like every other block command.
-func (s *Server) itemBlockPos(player string, args []string) (bx, by, bz int, tok int, ok bool) {
+// against the command source frame for caret triples and the sender for
+// ordinary integer/~ syntax.
+func (s *Server) itemBlockPos(player string, args []string) (x, y, z int, bad *reply) {
+	if pos, r, local := s.commandLocalBlockPos(player, args[2:], 3); local {
+		if r != nil {
+			return 0, 0, 0, r
+		}
+		return pos.X, pos.Y, pos.Z, nil
+	}
 	px, py, pz := s.baseBlockPos(player)
 	vals := []int{px, py, pz}
 	for i := 0; i < 3; i++ {
 		v, err := parseCoord(args[2+i], vals[i])
 		if err != nil {
-			return 0, 0, 0, 3 + i, false
+			r := errToken("parsing.int.expected", 3+i)
+			return 0, 0, 0, &r
 		}
 		vals[i] = v
 	}
-	return vals[0], vals[1], vals[2], 0, true
+	return vals[0], vals[1], vals[2], nil
 }
 
 // runItemModify parses an `item modify` target and slot, then the
@@ -631,8 +639,8 @@ func (s *Server) runItemModify(player string, args []string) reply {
 		if len(args) < 6 {
 			return errTokenEnd("command.unknown.command", len(args))
 		}
-		if _, _, _, tok, ok := s.itemBlockPos(player, args); !ok {
-			return errToken("parsing.int.expected", tok)
+		if _, _, _, bad := s.itemBlockPos(player, args); bad != nil {
+			return *bad
 		}
 	} else {
 		if len(args) < 4 {
@@ -666,7 +674,10 @@ func (s *Server) runItemModify(player string, args []string) reply {
 	// damage-varying setup survives a round trip.
 	d := s.dimOf(player)
 	if args[1] == "block" {
-		x, y, z, _, _ := s.itemBlockPos(player, args)
+		x, y, z, bad := s.itemBlockPos(player, args)
+		if bad != nil {
+			return *bad
+		}
 		pos := world.Pos{X: x, Y: y, Z: z}
 		st, r, ok := s.readItemBlock(d, pos, mustParseItemSlot(args[slotArg]))
 		if !ok {
@@ -975,14 +986,22 @@ func (s *Server) parseItemSource(player string, args []string, at int) (itemSour
 		if len(args) < at+5 {
 			return src, 0, errTokenEnd("command.unknown.command", len(args)), false
 		}
-		px, py, pz := s.baseBlockPos(player)
-		vals := []int{px, py, pz}
-		for i := 0; i < 3; i++ {
-			v, err := parseCoord(args[at+1+i], vals[i])
-			if err != nil {
-				return src, 0, errToken("parsing.int.expected", at+2+i), false
+		var vals [3]int
+		if pos, r, local := s.commandLocalBlockPos(player, args[at+1:], at+2); local {
+			if r != nil {
+				return src, 0, *r, false
 			}
-			vals[i] = v
+			vals = [3]int{pos.X, pos.Y, pos.Z}
+		} else {
+			px, py, pz := s.baseBlockPos(player)
+			vals = [3]int{px, py, pz}
+			for i := 0; i < 3; i++ {
+				v, err := parseCoord(args[at+1+i], vals[i])
+				if err != nil {
+					return src, 0, errToken("parsing.int.expected", at+2+i), false
+				}
+				vals[i] = v
+			}
 		}
 		id, ok := parseItemSlot(args[at+4])
 		if !ok {
@@ -1018,9 +1037,9 @@ func (s *Server) runItemReplace(player string, args []string) reply {
 		if len(args) < 6 {
 			return errTokenEnd("command.unknown.command", len(args))
 		}
-		x, y, z, tok, ok := s.itemBlockPos(player, args)
-		if !ok {
-			return errToken("parsing.int.expected", tok)
+		x, y, z, bad := s.itemBlockPos(player, args)
+		if bad != nil {
+			return *bad
 		}
 		id, ok := parseItemSlot(args[5])
 		if !ok {

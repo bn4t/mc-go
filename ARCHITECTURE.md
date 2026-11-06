@@ -1699,9 +1699,10 @@ block`, `if data block`, `store ... block`, `positioned` and `facing` caret
 triples; the plan compiler validates and resolves positioned locally. Direct
 `/setblock`, `/fill` and `/clone` positions use the same source snapshot and
 floored local resolution while their absolute integer/~ parsers stay in place.
-`/data`, `/item`, `/spawnpoint`, `/setworldspawn`, `/place` and other command
-block-position consumers, complete error cursor ranges, biome tags and biome
-unloaded-query errors remain separate.
+The `/data` block target and from-block source sites and both `/item` block
+target/source parsers share it too. `/spawnpoint`, `/setworldspawn`, `/place`,
+`/fillbiome` and other command block-position consumers, complete error cursor
+ranges, biome tags and biome unloaded-query errors remain separate.
 
 Living attachment scale follows consumed dimensions independently of raw
 attribute values. Passenger vectors and vertical rider points retain double
