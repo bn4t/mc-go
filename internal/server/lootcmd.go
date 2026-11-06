@@ -63,7 +63,7 @@ func (s *Server) runLoot(player string, args []string) reply {
 		if i >= len(args) {
 			return errTokenEnd("command.unknown.command", i+1)
 		}
-		pos, r := s.parseBlockPos(sender, args[i:], i+1)
+		pos, r := s.parseBlockPosCommand(player, sender, args[i:], i+1)
 		if r != nil {
 			return *r
 		}
@@ -74,7 +74,7 @@ func (s *Server) runLoot(player string, args []string) reply {
 		if i >= len(args) {
 			return errTokenEnd("command.unknown.command", i+1)
 		}
-		pos, r := s.parseBlockPos(sender, args[i:], i+1)
+		pos, r := s.parseBlockPosCommand(player, sender, args[i:], i+1)
 		if r != nil {
 			return *r
 		}
@@ -105,7 +105,7 @@ func (s *Server) runLoot(player string, args []string) reply {
 			if i >= len(args) {
 				return errTokenEnd("command.unknown.command", i+1)
 			}
-			pos, r := s.parseBlockPos(sender, args[i:], i+1)
+			pos, r := s.parseBlockPosCommand(player, sender, args[i:], i+1)
 			if r != nil {
 				return *r
 			}
@@ -161,7 +161,7 @@ func (s *Server) runLoot(player string, args []string) reply {
 		}
 		table, tableErrName = args[i], args[i]
 		i++
-		pos, r := s.parseBlockPos(sender, args[i:], i+1)
+		pos, r := s.parseBlockPosCommand(player, sender, args[i:], i+1)
 		if r != nil {
 			return *r
 		}
@@ -202,7 +202,7 @@ func (s *Server) runLoot(player string, args []string) reply {
 		if i >= len(args) {
 			return errTokenEnd("command.unknown.command", i+1)
 		}
-		pos, r := s.parseBlockPos(sender, args[i:], i+1)
+		pos, r := s.parseBlockPosCommand(player, sender, args[i:], i+1)
 		if r != nil {
 			return *r
 		}

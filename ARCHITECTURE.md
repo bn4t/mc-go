@@ -1706,9 +1706,11 @@ native cursor offsets: mixed triples mark the argument start, numeric failures
 mark after the caret and exponents mark after the numeric prefix. `/place`
 structure and feature positions and both `/fillbiome` corners also use it.
 Fillbiome normalizes the quantized quart box before writing and reporting its
-success coordinates, matching native for unaligned and reversed corners. Other
-command block-position consumers, complete error cursor ranges, biome tags and
-biome unloaded-query errors remain separate.
+success coordinates, matching native for unaligned and reversed corners. All
+five `/loot` position sites (spawn, insert, replace block, fish and mine) share
+the resolver too; no production caller invokes the old block-position parser
+directly. Complete error cursor ranges, biome tags and biome unloaded-query
+errors remain separate.
 
 Living attachment scale follows consumed dimensions independently of raw
 attribute values. Passenger vectors and vertical rider points retain double

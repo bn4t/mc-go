@@ -349,8 +349,9 @@ Mojang server over the wire.
   resolver now covers execute if blocks/items/data and store block blockpos
   arguments plus positioned/facing vec3, with mixed/invalid syntax pinned.
   Direct /setblock, /fill, /clone, /data, /item, /spawnpoint,
-  /setworldspawn, /place and both /fillbiome corners use the same frame
-  resolver; other command block-position consumers remain open. Fillbiome
+  /setworldspawn, /place, both /fillbiome corners, and the /loot spawn,
+  insert, replace-block, fish and mine positions use the same frame resolver;
+  no production caller invokes the old block-position parser directly. Fillbiome
   reports and writes the normalized quart box for unaligned or reversed
   corners. Local parse failures now use native cursor offsets: mixed triples at
   the argument start, numeric failures after the caret, exponents after the
@@ -20458,5 +20459,18 @@ Native source is official Minecraft Java Edition 26.2/protocol 776, extracted ru
 - **Pinned:** New `TestPlaceFillBiomeLocalPositionParity` passes (12.90s) with full component-tree and key comparison for success/error replies, direct and execute-rotated sources, local/absolute corner mixes, unaligned and reversed quart boxes, physical oak-log and biome checks, and every mixed/invalid cursor. Existing gates pass: block-edit local 13.79s, data/item local 13.05s, execute block local 21.27s, execute loaded local 12.51s, execute remaining local 14.31s, place structure 17.75s, spawn commands 45.34s and world commands 13.93s. Focused units pin exact token/offset pairs, direct and rotated source frames, normalized fillbiome replies and actual biome writes. `go build ./...`, default `go vet ./...`, tagged blackbox compilation and `go test -p 2 ./... -count=1 -timeout 25m` exit 0 (internal/server 304.057s, default blackbox 118.525s). Source patch (three production files plus two tests) SHA-256 `73681715464e002d2305ba7e1422e4f473c767fd9f0ad069e432bacf4eae4aaf`; file hashes are `1c1a0144…`/`767be3c0…`/`38f33c38…`/`7c9f09c2…`/`b3fe24b8…`.
 
 Scope: other command block-position consumers, neutral-executor eye anchors, complete error-cursor ranges, biome tags and biome unloaded-query errors remain separate. General feature-placement differences remain outside this slice; the fixture uses an oak feature whose physical result matched. This slice does not audit `replace`-filter counting or arbitrary command-source rotation contexts.
+
+Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supplied the observations; no native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8, GOMAXPROCS=2.
+
+
+## Slice — loot local positions (2026-11-06)
+
+- **Measured:** Native 26.2 accepts caret positions at all five `/loot` block-position sites. From (8.5,-60,8.5) yaw 0, `loot spawn ^4 ^ ^1 loot minecraft:blocks/dirt` succeeds and an item entity appears at (12,-60,9); `loot insert ^ ^ ^1` fills the chest at (8,-60,9); an execute frame with `positioned 8.5 -60 8.5 rotated 90 0` resolves the same insert to the chest at (7,-60,8); `loot replace block ^ ^ ^3 container.0` fills the chest at (8,-60,11). `loot spawn ^4 ^ ^1 fish minecraft:blocks/dirt ^4 ^ ^1` succeeds, while `loot spawn ^4 ^ ^1 mine ^4 ^ ^5` reads the local dirt block at (12,-60,13) and reports `commands.drop.success.single_with_table` with `minecraft:blocks/dirt`. Absolute positions remain accepted. Mixed triples report `argument.pos.mixed` at each argument start; `^NaN` reports `parsing.double.expected` after the caret; an exponent reports `command.expected.separator` after the numeric prefix. The unchanged Go probe rejected all local forms with `parsing.int.expected`, including the five source/target sites.
+
+- **Implemented:** Route the `/loot` spawn, insert, replace-block, fish and mine positions through `parseBlockPosCommand`, retaining the existing absolute integer/~ parser and all selector, slot, count, loot-table and target/source semantics. No other parser or loot application path changed; after this slice no production caller invokes `parseBlockPos` directly, only the shared helper's absolute fallback.
+
+- **Pinned:** New `TestLootLocalPositionParity` passes (13.63s) with full component-tree and key comparison for direct spawn/insert/replace/fish/mine, an execute-rotated insert, an absolute control, all mixed/invalid cursors, spawned-item and chest-slot witnesses. Existing `TestLootParity` passes (153.05s); focused unit groups pin token/offset pairs and direct/rotated source frames with actual dirt slot and mine-table receipts. `go build ./...`, default `go vet ./...`, tagged blackbox compilation and `go test -p 2 ./... -count=1 -timeout 25m` exit 0 (internal/server 315.270s, default blackbox 125.905s). Source patch (one production file plus two tests) SHA-256 `2ed36b21f1150faa329c3500f66f5bd1798d3e3a8106a25791cf8b3d7904b6ad`; file hashes are `1cca82eb…`/`1dcb8dab…`/`60480e37…`.
+
+Scope: complete error-cursor ranges, neutral-executor eye anchors, arbitrary command-source rotation contexts, loot-condition evaluation and the full `/loot` grammar remain outside this slice. The fixture uses deterministic `minecraft:blocks/dirt` tables and dirt items so success components are comparable rather than random table draws.
 
 Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supplied the observations; no native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8, GOMAXPROCS=2.

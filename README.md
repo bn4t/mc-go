@@ -39,11 +39,13 @@ local caret coordinates resolved from source rotation and feet/eyes anchors. The
 same source-frame resolver now covers `if blocks`, `if items block`, `if data
 block`, `store ... block`, `positioned` and `facing` caret triples, and the
 direct `/setblock`, `/fill`, `/clone`, `/data`, `/item`, `/spawnpoint`,
-`/setworldspawn`, `/place` and both `/fillbiome` corners. Fillbiome reports and
-writes the normalized quart box for local or unaligned endpoints, including
-reversed corners. Other direct consumers still use the older parser. Local parse
-failures use native cursor offsets: the argument start for mixed triples, after
-the caret for numeric failures and after the numeric prefix for exponents. Measured chest/barrel
+`/setworldspawn`, `/place`, both `/fillbiome` corners, and the `/loot` spawn,
+insert, replace-block, fish and mine positions. Fillbiome reports and writes the
+normalized quart box for local or unaligned endpoints, including reversed
+corners. No production caller still invokes the old block-position parser
+directly. Local parse failures use native cursor offsets: the argument start for
+mixed triples, after the caret for numeric failures and after the numeric
+prefix for exponents. Measured chest/barrel
 hopper automation does the same without granting later menu loot credit. Hopper
 `/setblock` loads item slots and transfer cooldowns, including explicit zero and
 replacement defaults, through measured menus, transfers and copied-save restarts. Player powder-snow melt,
