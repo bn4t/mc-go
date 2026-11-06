@@ -1697,7 +1697,9 @@ and its tag, state and block-entity predicates work with local positions. The
 same shared source-frame resolver now also serves `if blocks`, `if items
 block`, `if data block`, `store ... block`, `positioned` and `facing` caret
 triples; the plan compiler validates and resolves positioned locally. Direct
-`/setblock`, `/fill`, `/clone`, `/data`, `/item` and other command
+`/setblock`, `/fill` and `/clone` positions use the same source snapshot and
+floored local resolution while their absolute integer/~ parsers stay in place.
+`/data`, `/item`, `/spawnpoint`, `/setworldspawn`, `/place` and other command
 block-position consumers, complete error cursor ranges, biome tags and biome
 unloaded-query errors remain separate.
 

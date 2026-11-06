@@ -145,17 +145,26 @@ func (s *Server) runSetblock(player string, args []string) reply {
 		return textReply("Usage: /setblock <x> <y> <z> <stone|dirt|grass|air>")
 	}
 	bx, by, bz := s.baseBlockPos(player)
-	x, err := parseCoord(args[0], bx)
-	if err != nil {
-		return textReply("Invalid x: " + args[0])
-	}
-	y, err := parseCoord(args[1], by)
-	if err != nil {
-		return textReply("Invalid y: " + args[1])
-	}
-	z, err := parseCoord(args[2], bz)
-	if err != nil {
-		return textReply("Invalid z: " + args[2])
+	var x, y, z int
+	if pos, r, local := s.commandLocalBlockPos(player, args, 0); local {
+		if r != nil {
+			return *r
+		}
+		x, y, z = pos.X, pos.Y, pos.Z
+	} else {
+		var err error
+		x, err = parseCoord(args[0], bx)
+		if err != nil {
+			return textReply("Invalid x: " + args[0])
+		}
+		y, err = parseCoord(args[1], by)
+		if err != nil {
+			return textReply("Invalid y: " + args[1])
+		}
+		z, err = parseCoord(args[2], bz)
+		if err != nil {
+			return textReply("Invalid z: " + args[2])
+		}
 	}
 	d := s.dimOf(player)
 	if y < d.minY || y > d.minY+d.height-1 {

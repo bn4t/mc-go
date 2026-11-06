@@ -1517,12 +1517,23 @@ func (s *Server) runFill(player string, args []string) (out reply) {
 	}
 	bx, by, bz := s.baseBlockPos(player)
 	c := make([]int, 6)
-	for i := 0; i < 6; i++ {
-		v, err := parseCoord(args[i], map[int]int{0: bx, 2: bz, 1: by, 3: bx, 4: by, 5: bz}[i])
-		if err != nil {
-			return errToken("parsing.int.invalid", i)
+	base := [6]int{bx, by, bz, bx, by, bz}
+	for t := 0; t < 2; t++ {
+		idx := 3 * t
+		if pos, r, local := s.commandLocalBlockPos(player, args[idx:], idx); local {
+			if r != nil {
+				return *r
+			}
+			c[idx], c[idx+1], c[idx+2] = pos.X, pos.Y, pos.Z
+			continue
 		}
-		c[i] = v
+		for k := 0; k < 3; k++ {
+			v, err := parseCoord(args[idx+k], base[idx+k])
+			if err != nil {
+				return errToken("parsing.int.invalid", idx+k)
+			}
+			c[idx+k] = v
+		}
 	}
 	blk, _, ok := parseBlockSpec(args[6])
 	if !ok {

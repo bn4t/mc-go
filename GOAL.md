@@ -347,9 +347,10 @@ Mojang server over the wire.
   Execute-biome local block positions have native rotation, feet/eyes, dimension
   order and bounded invalid-number/mixed-syntax controls. The same source-frame
   resolver now covers execute if blocks/items/data and store block blockpos
-  arguments plus positioned/facing vec3, with mixed/invalid syntax pinned;
-  /setblock, /fill, /clone, /data, /item and other command block-position
-  consumers remain open.
+  arguments plus positioned/facing vec3, with mixed/invalid syntax pinned.
+  Direct /setblock, /fill and /clone block positions use the same frame
+  resolver; /data, /item, /spawnpoint, /setworldspawn, /place and other
+  command block-position consumers remain open.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
   file/tag events survive native save/restart. Startup load/tick tags and measured
@@ -20401,5 +20402,18 @@ Native source is official Minecraft Java Edition 26.2/protocol 776, extracted ru
 - **Pinned:** The new identical fixture passes native 3.00s / Go 2.65s (14.42s total), covering block source/destination and masked cases, container item/data reads, sign writes with explicit zero, rotated/fractional/eyes positioned targets, local-versus-absolute facing at 45°, 90° and +30° pitch, and all mixed/invalid error keys. Existing execute area gates pass unchanged: block local 19.25s, facing 15.66s, loaded local 11.02s, execute-if 174.71s, biome local 15.97s. `go test ./internal/...` passes (internal/server 319.23s); focused new unit groups pin error token indices and both plan/fallback positioned paths. `go build ./...`, default `go vet ./...` and tagged blackbox compilation all exit 0. Source patch (three production files plus two tests) SHA-256 `9f558e2ea97a9b8c608c3313ca1e8dbd80920e2f4f4901ed3bcb0de859b19da8`; file hashes are `d322e785…`/`318501c6…`/`074ddd66…`/`58020f0a…`/`2c40d7ad…`.
 
 Scope: `/setblock`, `/fill`, `/clone`, `/data`, `/item` and other direct command block-position consumers still use the older parser; neutral-executor eye anchors, complete error-cursor grammar, biome tags and unloaded-query errors remain separate. This slice does not establish arbitrary command-source rotations or parity for those consumers.
+
+Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supplied the observations; no native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8, GOMAXPROCS=2.
+
+
+## Slice — block-edit command local positions (2026-11-06)
+
+- **Measured:** Native 26.2 accepts caret triplets in `/setblock`, `/fill` and `/clone`. A direct player at yaw 0 writes one block forward and at yaw 90 writes one block west; fractional `^1.5 ^2.25 ^-2.75` floors the transformed point. Execute-framed `positioned ... rotated` and `anchored eyes` sources resolve the same way. Local `fill` bounds and a local `clone` source/destination copy the expected boxes, including a 180° rotated source frame. Mixed triples fail with `argument.pos.mixed`, `^NaN` with `parsing.double.expected`, a final-axis exponent with `command.expected.separator`, and a leading-plus token with `parsing.double.expected`. The identical probe on unchanged code did not edit: Go's `setblock` produced no success, `fill` reported `parsing.int.invalid` and `clone` `parsing.int.expected`, while native landed all three edits. Absolute integer/~ controls stayed unchanged for each command.
+
+- **Implemented:** Add a direct-command source snapshot and a shared caret block-position resolver. `commandSourceSnapshot` reuses the active execute/function frame or derives a player frame from session position and view rotation; `commandLocalBlockPos` validates and resolves the triple through the source rotation and feet/eyes anchor, then floors it. `/setblock` uses it for its first position, `/fill` independently for both corners, and `/clone` through `parseBlockPosCommand`, which preserves the existing `parseBlockPos` integer/~ parser for non-local syntax. No block-edit, clone/copy, fill-mode or callback semantics changed.
+
+- **Pinned:** The new `TestBlockEditLocalPositionParity` passes native 2.33s / Go 1.73s (13.35s total) with direct-yaw, fractional, execute-rotated, eyes-anchored, fill, clone and error cases. Existing block-edit gates pass: fill/clone predicate 16.85s, clone native block entities 13.59s, clone strict placement 13.45s, fill command results 12.65s, setblock container payload 16.51s, setblock destroy modes 199.64s, clone 15.17s and clone hydration order 12.79s. Focused units pin token indices and direct/execute source frames. `go build ./...`, `go vet ./...`, tagged blackbox compilation and `go test -p 2 ./... -count=1 -timeout 25m` exit 0 (internal/server 308.50s, default blackbox 124.11s). Source patch (three production files plus three tests) SHA-256 `58170f12aa3cce299db1b69e8bebd170f2c54f72c1e4eb0d712e114a03278f0e`; file hashes are `bb2d45c9…`/`29606eee…`/`c2610cca…`/`1c82cfd9…`/`7a0eb1db…`/`77f49ddf…`.
+
+Scope: `/data`, `/item`, `/spawnpoint`, `/setworldspawn`, `/place`, `/fillbiome` and other command block-position consumers still use their older parsers. Neutral-executor eye anchors, complete error-cursor grammar and arbitrary command-source rotation contexts remain separate.
 
 Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supplied the observations; no native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8, GOMAXPROCS=2.

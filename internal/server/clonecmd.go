@@ -35,7 +35,7 @@ func (s *Server) runClone(player string, args []string) reply {
 	if len(args)-i == 0 {
 		return errTokenEnd("command.unknown.command", i+1)
 	}
-	begin, r := s.parseBlockPos(sender, args[i:], i+1)
+	begin, r := s.parseBlockPosCommand(player, sender, args[i:], i+1)
 	if r != nil {
 		return *r
 	}
@@ -43,7 +43,7 @@ func (s *Server) runClone(player string, args []string) reply {
 	if len(args)-i == 0 {
 		return errTokenEnd("command.unknown.command", i+1)
 	}
-	end, r := s.parseBlockPos(sender, args[i:], i+1)
+	end, r := s.parseBlockPosCommand(player, sender, args[i:], i+1)
 	if r != nil {
 		return *r
 	}
@@ -64,7 +64,7 @@ func (s *Server) runClone(player string, args []string) reply {
 	if len(args)-i == 0 {
 		return errTokenEnd("command.unknown.command", i+1)
 	}
-	dst, r := s.parseBlockPos(sender, args[i:], i+1)
+	dst, r := s.parseBlockPosCommand(player, sender, args[i:], i+1)
 	if r != nil {
 		return *r
 	}

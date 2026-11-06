@@ -37,8 +37,10 @@ unpack latent loot using the owning container's biome. Execute biome conditions
 use the zoomed biome at their bound dimension and block position, including
 local caret coordinates resolved from source rotation and feet/eyes anchors. The
 same source-frame resolver now covers `if blocks`, `if items block`, `if data
-block`, `store ... block`, `positioned` and `facing` caret triples; direct
-command block-position consumers outside execute remain open. Measured chest/barrel
+block`, `store ... block`, `positioned` and `facing` caret triples, and the
+direct `/setblock`, `/fill` and `/clone` block positions. Remaining direct
+consumers such as `/data`, `/item`, `/spawnpoint`, `/setworldspawn` and
+`/place` still use the older parser. Measured chest/barrel
 hopper automation does the same without granting later menu loot credit. Hopper
 `/setblock` loads item slots and transfer cooldowns, including explicit zero and
 replacement defaults, through measured menus, transfers and copied-save restarts. Player powder-snow melt,
