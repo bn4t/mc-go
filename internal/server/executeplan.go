@@ -161,10 +161,12 @@ func (s *Server) applyExecutePlanStep(player string, input executePlanContext, s
 	case "in":
 		setExecuteDimension(ctx, s.dimensionByName(a[0]))
 	case "positioned":
-		ctx.anchorEyes = false
-		for i, token := range a {
-			ctx.pos[i], _ = parseDouble(token, ctx.pos[i], i != 1)
+		pos, failure := s.executeSourceVec(ctx, a, step.token+1)
+		if failure != nil {
+			return nil, failure, false
 		}
+		ctx.pos = pos
+		ctx.anchorEyes = false
 	case "align":
 		for _, axis := range a[0] {
 			index := 0

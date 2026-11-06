@@ -1693,7 +1693,11 @@ anchors, positioned anchor reset and dimension/coordinate-scale order. The new
 local path rejects mixed triples and native-invalid nonfinite, exponent and
 leading-plus spellings with bounded typed-error controls. The loaded condition uses the transformed column without generating missing chunks.
 The block condition retains its bound-dimension and unavailable-column guards,
-and its tag, state and block-entity predicates work with local positions. Other
+and its tag, state and block-entity predicates work with local positions. The
+same shared source-frame resolver now also serves `if blocks`, `if items
+block`, `if data block`, `store ... block`, `positioned` and `facing` caret
+triples; the plan compiler validates and resolves positioned locally. Direct
+`/setblock`, `/fill`, `/clone`, `/data`, `/item` and other command
 block-position consumers, complete error cursor ranges, biome tags and biome
 unloaded-query errors remain separate.
 

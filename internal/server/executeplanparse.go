@@ -141,10 +141,22 @@ func (s *Server) validateExecutePlanStep(step executePlanStep) (*reply, bool) {
 			return nil, false
 		}
 	case "positioned", "rotated":
-		for i, v := range a {
-			if _, e := parseDouble(v, 0, step.kind == "positioned" && i != 1); e != nil {
-				r := errToken("parsing.double.expected", at+i)
-				return &r, true
+		local := false
+		if step.kind == "positioned" {
+			for _, v := range a {
+				local = local || strings.HasPrefix(v, "^")
+			}
+		}
+		if local {
+			if r := validateLocalTriple(a, at); r != nil {
+				return r, true
+			}
+		} else {
+			for i, v := range a {
+				if _, e := parseDouble(v, 0, step.kind == "positioned" && i != 1); e != nil {
+					r := errToken("parsing.double.expected", at+i)
+					return &r, true
+				}
 			}
 		}
 	case "align":

@@ -270,11 +270,21 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 		}
 		return 5, cond, 0, false, nil
 	case "blocks":
-		// if blocks <from> <to> <dest> (all|masked) — nine int blockpos
-		// args then the mode keyword, which only accepts all/masked.
-		c, cerr := blockPosTriple(args, bx, by, bz, tokBase)
-		if cerr != nil {
-			return 0, false, 0, false, cerr
+		// if blocks <from> <to> <dest> (all|masked) — three blockpos
+		// arguments, each resolved independently from the same source
+		// frame, then the mode keyword, which only accepts all/masked.
+		var c [9]int
+		for t := 0; t < 3; t++ {
+			start := 1 + 3*t
+			var toks []string
+			if start <= len(args) {
+				toks = args[start:]
+			}
+			pos, cerr := s.executeSourceBlockPos(ctx, toks, bx, by, bz, tokBase+start)
+			if cerr != nil {
+				return 0, false, 0, false, cerr
+			}
+			c[3*t], c[3*t+1], c[3*t+2] = pos.X, pos.Y, pos.Z
 		}
 		if len(args) < 11 || (args[10] != "all" && args[10] != "masked") {
 			r := errToken("command.unknown.argument", tokBase+10)
@@ -387,96 +397,128 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 // executeSourceBlockPosition serves block, biome and loaded conditions. It keeps ordinary
 // block coordinates on the integer parser, and resolves a local triple in the exact source frame before flooring.
 func (s *Server) executeSourceBlockPosition(ctx *executeContext, args []string, bx, by, bz, tokBase int) (world.Pos, *reply) {
+	return s.executeSourceBlockPos(ctx, args[1:], bx, by, bz, tokBase+1)
+}
+
+// executeSourceBlockPos resolves one blockpos argument from the source
+// frame. Ordinary tokens keep the integer blockpos parser; a caret triple
+// is resolved through the source rotation and feet/eyes anchor, then
+// floored. toks is the coordinate slice beginning at tokBase.
+func (s *Server) executeSourceBlockPos(ctx *executeContext, toks []string, bx, by, bz, tokBase int) (world.Pos, *reply) {
 	local := false
-	for k := 1; k < len(args) && k <= 3; k++ {
-		local = local || strings.HasPrefix(args[k], "^")
+	for k := 0; k < len(toks) && k < 3; k++ {
+		local = local || strings.HasPrefix(toks[k], "^")
 	}
 	if !local {
-		x, y, z, r := blockPosArgs(args, bx, by, bz, tokBase)
+		x, y, z, r := blockPosToks(toks, [3]int{bx, by, bz}, tokBase)
 		return world.Pos{X: x, Y: y, Z: z}, r
 	}
-	for k := 1; k <= 3; k++ {
-		if k >= len(args) {
+	if r := validateLocalTriple(toks, tokBase); r != nil {
+		return world.Pos{}, r
+	}
+	x, y, z := s.resolveLocalTriple(ctx, toks)
+	return world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}, nil
+}
+
+// executeSourceVec resolves one vec3 argument from the source frame with
+// the vec3() center rule on absolute x/z. Local triples use the same
+// rotation and anchor frame as block positions but keep floating point.
+func (s *Server) executeSourceVec(ctx *executeContext, toks []string, tokBase int) ([3]float64, *reply) {
+	var out [3]float64
+	if len(toks) < 3 {
+		r := errToken("parsing.double.expected", tokBase+len(toks))
+		return out, &r
+	}
+	local := false
+	for k := 0; k < 3; k++ {
+		local = local || strings.HasPrefix(toks[k], "^")
+	}
+	if !local {
+		for k := 0; k < 3; k++ {
+			v, err := parseDouble(toks[k], ctx.pos[k], k != 1)
+			if err != nil {
+				r := errToken("parsing.double.expected", tokBase+k)
+				return out, &r
+			}
+			out[k] = v
+		}
+		return out, nil
+	}
+	if r := validateLocalTriple(toks, tokBase); r != nil {
+		return out, r
+	}
+	x, y, z := s.resolveLocalTriple(ctx, toks)
+	return [3]float64{x, y, z}, nil
+}
+
+// resolveLocalTriple applies the source rotation and feet/eyes anchor to an
+// already validated caret triple.
+func (s *Server) resolveLocalTriple(ctx *executeContext, toks []string) (x, y, z float64) {
+	origin := ctx.pos
+	if ctx.anchorEyes {
+		origin[1] += s.commandSourceEyeHeight(ctx.ent)
+	}
+	return tpResolveSourceCoords(toks[:3], origin[0], origin[1], origin[2], ctx.rotation)
+}
+
+// validateLocalTriple checks the three tokens of a local vec3. All three
+// must be local, and only ordinary decimal spellings are accepted, so Go's
+// nonfinite, exponent and leading-plus extensions stay out.
+func validateLocalTriple(toks []string, tokBase int) *reply {
+	for k := 0; k < 3; k++ {
+		if k >= len(toks) {
 			r := errToken("parsing.double.expected", tokBase+k)
-			return world.Pos{}, &r
+			return &r
 		}
-		if !strings.HasPrefix(args[k], "^") {
+		if !strings.HasPrefix(toks[k], "^") {
 			r := errToken("argument.pos.mixed", tokBase+k)
-			return world.Pos{}, &r
+			return &r
 		}
-		// Local block coordinates accept ordinary decimal spellings only.
-		// Keep Go's nonfinite, exponent and leading-plus extensions out.
-		number := args[k][1:]
+		number := toks[k][1:]
 		end := 0
 		for end < len(number) && (number[end] >= '0' && number[end] <= '9' || number[end] == '-' || number[end] == '.') {
 			end++
 		}
 		if end == 0 && number != "" {
 			r := errToken("parsing.double.expected", tokBase+k)
-			return world.Pos{}, &r
+			return &r
 		}
 		if end > 0 {
 			if _, err := strconv.ParseFloat(number[:end], 64); err != nil {
 				r := errToken("parsing.double.invalid", tokBase+k, number[:end])
-				return world.Pos{}, &r
+				return &r
 			}
 			if end != len(number) {
 				key := "argument.pos3d.incomplete"
-				if k == 3 {
+				if k == 2 {
 					key = "command.expected.separator"
 				}
 				r := errToken(key, tokBase+k)
-				return world.Pos{}, &r
+				return &r
 			}
 		}
 	}
-	origin := ctx.pos
-	if ctx.anchorEyes {
-		origin[1] += s.commandSourceEyeHeight(ctx.ent)
-	}
-	x, y, z := tpResolveSourceCoords(args[1:4], origin[0], origin[1], origin[2], ctx.rotation)
-	return world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}, nil
+	return nil
 }
 
-// blockPosArgs reads one int blockpos (three tokens, ~ allowed) out of
-// args starting at index 1, reporting a bad or missing coordinate as
-// parsing.int.expected at that token — the shape the real server gives
-// a BlockPosArgument failure.
-func blockPosArgs(args []string, bx, by, bz, tokBase int) (x, y, z int, r *reply) {
-	base := [3]int{bx, by, bz}
-	out := [3]int{}
+// blockPosToks reads three int blockpos tokens, reporting a bad or missing
+// coordinate as parsing.int.expected at that token — the shape the real
+// server gives a BlockPosArgument failure.
+func blockPosToks(toks []string, base [3]int, tokBase int) (x, y, z int, r *reply) {
+	var out [3]int
 	for k := 0; k < 3; k++ {
-		if 1+k >= len(args) {
-			r := errToken("parsing.int.expected", tokBase+1+k)
+		if k >= len(toks) {
+			r := errToken("parsing.int.expected", tokBase+k)
 			return 0, 0, 0, &r
 		}
-		v, err := parseCoord(args[1+k], base[k])
+		v, err := parseCoord(toks[k], base[k])
 		if err != nil {
-			r := errToken("parsing.int.expected", tokBase+1+k)
+			r := errToken("parsing.int.expected", tokBase+k)
 			return 0, 0, 0, &r
 		}
 		out[k] = v
 	}
 	return out[0], out[1], out[2], nil
-}
-
-// blockPosTriple reads three blockpos in a row for `if blocks`
-// (start, end, destination) with the same error shape.
-func blockPosTriple(args []string, bx, by, bz, tokBase int) (c [9]int, r *reply) {
-	base := [3]int{bx, by, bz}
-	for k := 0; k < 9; k++ {
-		if 1+k >= len(args) {
-			r := errToken("parsing.int.expected", tokBase+1+k)
-			return c, &r
-		}
-		v, err := parseCoord(args[1+k], base[k%3])
-		if err != nil {
-			r := errToken("parsing.int.expected", tokBase+1+k)
-			return c, &r
-		}
-		c[k] = v
-	}
-	return c, nil
 }
 
 // chunkLoaded reports whether any play session in d is tracking the
@@ -560,20 +602,9 @@ func (s *Server) executeIfItems(ctx *executeContext, player string, args []strin
 			r := textReply("Usage: /execute if items block <x> <y> <z> <slots> <item>")
 			return 0, false, &r
 		}
-		x, e := parseCoord(args[2], bx)
-		if e != nil {
-			r := textReply("Invalid x: " + args[2])
-			return 0, false, &r
-		}
-		y, e := parseCoord(args[3], by)
-		if e != nil {
-			r := textReply("Invalid y: " + args[3])
-			return 0, false, &r
-		}
-		z, e := parseCoord(args[4], bz)
-		if e != nil {
-			r := textReply("Invalid z: " + args[4])
-			return 0, false, &r
+		pos, cerr := s.executeSourceBlockPos(ctx, args[2:], bx, by, bz, tokBase+2)
+		if cerr != nil {
+			return 0, false, cerr
 		}
 		slots, ok := expandSlotRange(args[5])
 		if !ok {
@@ -582,7 +613,6 @@ func (s *Server) executeIfItems(ctx *executeContext, player string, args []strin
 		}
 		d := ctx.dim
 		if ctx.alive {
-			pos := world.Pos{X: x, Y: y, Z: z}
 			for _, id := range slots {
 				// A non-container read misses like the slot doesn't
 				// exist, the same way vanilla's container lookup just
@@ -910,24 +940,13 @@ func (s *Server) executeIfData(ctx *executeContext, player string, args []string
 			r := textReply("Usage: /execute if data block <x> <y> <z> [path]")
 			return 0, false, &r
 		}
-		x, e := parseCoord(args[2], bx)
-		if e != nil {
-			r := textReply("Invalid x: " + args[2])
-			return 0, false, &r
-		}
-		y, e := parseCoord(args[3], by)
-		if e != nil {
-			r := textReply("Invalid y: " + args[3])
-			return 0, false, &r
-		}
-		z, e := parseCoord(args[4], bz)
-		if e != nil {
-			r := textReply("Invalid z: " + args[4])
-			return 0, false, &r
+		pos, cerr := s.executeSourceBlockPos(ctx, args[2:], bx, by, bz, tokBase+2)
+		if cerr != nil {
+			return 0, false, cerr
 		}
 		next = 5
 		if ctx.alive {
-			if be, ok := s.blockEntitySaveMap(ctx.dim, world.Pos{X: x, Y: y, Z: z}); ok {
+			if be, ok := s.blockEntitySaveMap(ctx.dim, pos); ok {
 				base, exists = be, true
 			}
 		}
@@ -1797,7 +1816,7 @@ func (s *Server) executeStore(ctx *executeContext, player string, args []string,
 			}
 		}
 	case "block":
-		x, y, z, cerr := blockPosArgs(args[1:], bx, by, bz, tokBase+1)
+		pos, cerr := s.executeSourceBlockPos(ctx, args[2:], bx, by, bz, tokBase+2)
 		if cerr != nil {
 			return *cerr
 		}
@@ -1805,7 +1824,6 @@ func (s *Server) executeStore(ctx *executeContext, player string, args []string,
 		if r != nil {
 			return *r
 		}
-		pos := world.Pos{X: x, Y: y, Z: z}
 		be, ok := s.blockEntitySaveMap(ctx.dim, pos)
 		if !ok {
 			return componentReply(commandError("commands.data.block.invalid"))
@@ -2139,14 +2157,14 @@ func (s *Server) executePositioned(ctx *executeContext, player string, args []st
 	if len(args) < 3 {
 		return errToken("parsing.double.expected", tokBase+len(args))
 	}
-	ctx.anchorEyes = false
-	for k := 0; k < 3; k++ {
-		v, err := parseDouble(args[k], ctx.pos[k], k != 1)
-		if err != nil {
-			return errToken("parsing.double.expected", tokBase+k)
-		}
-		ctx.pos[k] = v
+	pos, r := s.executeSourceVec(ctx, args, tokBase)
+	if r != nil {
+		return *r
 	}
+	ctx.pos = pos
+	// positioned continues from the resolved point with a feet anchor;
+	// the local argument itself still honors an incoming eyes anchor.
+	ctx.anchorEyes = false
 	return s.execTail(ctx, player, args[3:], tokBase+3)
 }
 
@@ -2167,37 +2185,28 @@ func (s *Server) executeAim(ctx *executeContext, player, kind string, args []str
 		}
 		return s.executeFacingEntities(ctx, player, args[1:], tokBase+1)
 	}
-	need := 2 // rotated <yaw> <pitch>
-	if kind == "facing" {
-		need = 3 // facing <x> <y> <z>
+	if kind == "rotated" {
+		if len(args) < 2 {
+			return errToken("parsing.double.expected", tokBase+len(args))
+		}
+		for k := 0; k < 2; k++ {
+			value, err := parseDouble(args[k], float64(ctx.rotation[k]), false)
+			if err != nil {
+				return errToken("parsing.double.expected", tokBase+k)
+			}
+			ctx.rotation[k] = float32(value)
+		}
+		return s.execTail(ctx, player, args[2:], tokBase+2)
 	}
-	if len(args) < need {
+	if len(args) < 3 {
 		return errToken("parsing.double.expected", tokBase+len(args))
 	}
-	var target [3]float64
-	for k := 0; k < need; k++ {
-		// rotated's yaw/pitch are RotationArgument (no centering);
-		// facing's position is vec3() — x/z center, y does not.
-		base := float64(0)
-		if kind == "rotated" {
-			base = float64(ctx.rotation[k])
-		} else {
-			base = ctx.pos[k]
-		}
-		value, err := parseDouble(args[k], base, need == 3 && k != 1)
-		if err != nil {
-			return errToken("parsing.double.expected", tokBase+k)
-		}
-		if kind == "rotated" {
-			ctx.rotation[k] = float32(value)
-		} else {
-			target[k] = value
-		}
+	target, r := s.executeSourceVec(ctx, args, tokBase)
+	if r != nil {
+		return *r
 	}
-	if kind == "facing" {
-		ctx.rotation = s.executeFacingRotation(ctx, target)
-	}
-	return s.execTail(ctx, player, args[need:], tokBase+need)
+	ctx.rotation = s.executeFacingRotation(ctx, target)
+	return s.execTail(ctx, player, args[3:], tokBase+3)
 }
 
 // forkOver re-runs the tail once per matched entity — the shared
