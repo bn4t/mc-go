@@ -38,9 +38,11 @@ use the zoomed biome at their bound dimension and block position, including
 local caret coordinates resolved from source rotation and feet/eyes anchors. The
 same source-frame resolver now covers `if blocks`, `if items block`, `if data
 block`, `store ... block`, `positioned` and `facing` caret triples, and the
-direct `/setblock`, `/fill`, `/clone`, `/data` and `/item` block positions.
-Remaining direct consumers such as `/spawnpoint`, `/setworldspawn`, `/place`
-and `/fillbiome` still use the older parser. Measured chest/barrel
+direct `/setblock`, `/fill`, `/clone`, `/data`, `/item`, `/spawnpoint` and
+`/setworldspawn` block positions. Remaining direct consumers such as `/place`
+and `/fillbiome` still use the older parser. Local parse failures use native
+cursor offsets: the argument start for mixed triples, after the caret for
+numeric failures and after the numeric prefix for exponents. Measured chest/barrel
 hopper automation does the same without granting later menu loot credit. Hopper
 `/setblock` loads item slots and transfer cooldowns, including explicit zero and
 replacement defaults, through measured menus, transfers and copied-save restarts. Player powder-snow melt,

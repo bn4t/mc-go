@@ -16,15 +16,16 @@ func TestDataItemLocalPositionGrammar(t *testing.T) {
 		cmd   string
 		key   string
 		token int
+		off   int
 	}{
-		{"data get block ^ ~ ^1 Items", "argument.pos.mixed", 4},
-		{"data get block ^NaN ^ ^ Items", "parsing.double.expected", 3},
-		{"data get block ^ ^ ^1e2 Items", "command.expected.separator", 5},
-		{"data modify storage local:test foo set from block ^ ~ ^ Items", "argument.pos.mixed", 9},
-		{"item replace block ^ ~ ^1 container.0 with minecraft:stone", "argument.pos.mixed", 4},
-		{"item replace block ^NaN ^ ^ container.0 with minecraft:stone", "parsing.double.expected", 3},
-		{"item replace block ^ ^ ^1e2 container.0 with minecraft:stone", "command.expected.separator", 5},
-		{"item replace block ^ ^ ^9 container.0 from block ^ ~ ^ container.0", "argument.pos.mixed", 10},
+		{"data get block ^ ~ ^1 Items", "argument.pos.mixed", 3, 0},
+		{"data get block ^NaN ^ ^ Items", "parsing.double.expected", 3, 1},
+		{"data get block ^ ^ ^1e2 Items", "command.expected.separator", 5, 2},
+		{"data modify storage local:test foo set from block ^ ~ ^ Items", "argument.pos.mixed", 8, 0},
+		{"item replace block ^ ~ ^1 container.0 with minecraft:stone", "argument.pos.mixed", 3, 0},
+		{"item replace block ^NaN ^ ^ container.0 with minecraft:stone", "parsing.double.expected", 3, 1},
+		{"item replace block ^ ^ ^1e2 container.0 with minecraft:stone", "command.expected.separator", 5, 2},
+		{"item replace block ^ ^ ^9 container.0 from block ^ ~ ^ container.0", "argument.pos.mixed", 9, 0},
 	}
 	for _, row := range rows {
 		var got reply
@@ -37,8 +38,8 @@ func TestDataItemLocalPositionGrammar(t *testing.T) {
 		if len(got.comp.extra) > 0 {
 			key = got.comp.extra[0].translate
 		}
-		if key != row.key || got.fail == nil || got.fail.token != row.token {
-			t.Errorf("%q = key %q token %+v, want %q at %d", row.cmd, key, got.fail, row.key, row.token)
+		if key != row.key || got.fail == nil || got.fail.token != row.token || got.fail.off != row.off {
+			t.Errorf("%q = key %q token %+v, want %q at %d+%d", row.cmd, key, got.fail, row.key, row.token, row.off)
 		}
 	}
 }

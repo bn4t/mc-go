@@ -471,7 +471,9 @@ func validateLocalTriple(toks []string, tokBase int) *reply {
 			return &r
 		}
 		if !strings.HasPrefix(toks[k], "^") {
-			r := errToken("argument.pos.mixed", tokBase+k)
+			// BlockPosArgument reports a mixed triple at the start of the
+			// whole argument, where vanilla's parser checks the flags.
+			r := errTokenOff("argument.pos.mixed", tokBase, 0)
 			return &r
 		}
 		number := toks[k][1:]
@@ -480,12 +482,14 @@ func validateLocalTriple(toks []string, tokBase int) *reply {
 			end++
 		}
 		if end == 0 && number != "" {
-			r := errToken("parsing.double.expected", tokBase+k)
+			// The local reader consumes the caret first, so the number
+			// failure points at the value after it.
+			r := errTokenOff("parsing.double.expected", tokBase+k, 1)
 			return &r
 		}
 		if end > 0 {
 			if _, err := strconv.ParseFloat(number[:end], 64); err != nil {
-				r := errToken("parsing.double.invalid", tokBase+k, number[:end])
+				r := errTokenOff("parsing.double.invalid", tokBase+k, 1, number[:end])
 				return &r
 			}
 			if end != len(number) {
@@ -493,7 +497,7 @@ func validateLocalTriple(toks []string, tokBase int) *reply {
 				if k == 2 {
 					key = "command.expected.separator"
 				}
-				r := errToken(key, tokBase+k)
+				r := errTokenOff(key, tokBase+k, 1+end)
 				return &r
 			}
 		}

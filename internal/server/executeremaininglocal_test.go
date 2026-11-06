@@ -18,15 +18,16 @@ func TestExecuteRemainingLocalPositionGrammar(t *testing.T) {
 		cmd   string
 		key   string
 		token int
+		off   int
 	}{
-		{"positioned ^ ~ ^1 run setblock ~ ~ ~ stone", "argument.pos.mixed", 3},
-		{"positioned ^NaN ^ ^ run setblock ~ ~ ~ stone", "parsing.double.expected", 2},
-		{"positioned ^ ^ ^1e2 run setblock ~ ~ ~ stone", "command.expected.separator", 4},
-		{"facing ^ ~ ^1 run setblock ~ ~ ~ stone", "argument.pos.mixed", 3},
-		{"if blocks ^ ~ ^ ^ ^ ^2 8 -58 12 all run say X", "argument.pos.mixed", 4},
-		{"if items block ^ ~ ^ container.0 stone run say X", "argument.pos.mixed", 5},
-		{"if data block ^ ~ ^ Items run say X", "argument.pos.mixed", 5},
-		{"store result block ^ ~ ^ foo int 1 run data get storage z:z a", "argument.pos.mixed", 5},
+		{"positioned ^ ~ ^1 run setblock ~ ~ ~ stone", "argument.pos.mixed", 2, 0},
+		{"positioned ^NaN ^ ^ run setblock ~ ~ ~ stone", "parsing.double.expected", 2, 1},
+		{"positioned ^ ^ ^1e2 run setblock ~ ~ ~ stone", "command.expected.separator", 4, 2},
+		{"facing ^ ~ ^1 run setblock ~ ~ ~ stone", "argument.pos.mixed", 2, 0},
+		{"if blocks ^ ~ ^ ^ ^ ^2 8 -58 12 all run say X", "argument.pos.mixed", 3, 0},
+		{"if items block ^ ~ ^ container.0 stone run say X", "argument.pos.mixed", 4, 0},
+		{"if data block ^ ~ ^ Items run say X", "argument.pos.mixed", 4, 0},
+		{"store result block ^ ~ ^ foo int 1 run data get storage z:z a", "argument.pos.mixed", 4, 0},
 	}
 	for _, row := range rows {
 		got := s.runExecute("", strings.Fields(row.cmd))
@@ -34,8 +35,8 @@ func TestExecuteRemainingLocalPositionGrammar(t *testing.T) {
 		if len(got.comp.extra) > 0 {
 			key = got.comp.extra[0].translate
 		}
-		if key != row.key || got.fail == nil || got.fail.token != row.token {
-			t.Errorf("%q = key %q token %+v, want %q at %d", row.cmd, key, got.fail, row.key, row.token)
+		if key != row.key || got.fail == nil || got.fail.token != row.token || got.fail.off != row.off {
+			t.Errorf("%q = key %q token %+v, want %q at %d+%d", row.cmd, key, got.fail, row.key, row.token, row.off)
 		}
 	}
 }

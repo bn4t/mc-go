@@ -16,14 +16,15 @@ func TestBlockEditLocalPositionGrammar(t *testing.T) {
 		cmd   string
 		key   string
 		token int
+		off   int
 	}{
-		{"setblock ^ ~ ^1 stone", "argument.pos.mixed", 1},
-		{"setblock ^NaN ^ ^ stone", "parsing.double.expected", 0},
-		{"setblock ^ ^ ^1e2 stone", "command.expected.separator", 2},
-		{"fill ^ ~ ^ ^ ^ ^2 stone", "argument.pos.mixed", 1},
-		{"fill ^ ^ ^ ^ ~ ^2 stone", "argument.pos.mixed", 4},
-		{"clone ^ ^ ^ ^ ~ ^2 ^ ^ ^5", "argument.pos.mixed", 5},
-		{"clone ^ ^ ^ ^ ^ ^2 ^+1 ^ ^5", "parsing.double.expected", 7},
+		{"setblock ^ ~ ^1 stone", "argument.pos.mixed", 0, 0},
+		{"setblock ^NaN ^ ^ stone", "parsing.double.expected", 0, 1},
+		{"setblock ^ ^ ^1e2 stone", "command.expected.separator", 2, 2},
+		{"fill ^ ~ ^ ^ ^ ^2 stone", "argument.pos.mixed", 0, 0},
+		{"fill ^ ^ ^ ^ ~ ^2 stone", "argument.pos.mixed", 3, 0},
+		{"clone ^ ^ ^ ^ ~ ^2 ^ ^ ^5", "argument.pos.mixed", 4, 0},
+		{"clone ^ ^ ^ ^ ^ ^2 ^+1 ^ ^5", "parsing.double.expected", 7, 1},
 	}
 	for _, row := range rows {
 		var got reply
@@ -39,8 +40,8 @@ func TestBlockEditLocalPositionGrammar(t *testing.T) {
 		if len(got.comp.extra) > 0 {
 			key = got.comp.extra[0].translate
 		}
-		if key != row.key || got.fail == nil || got.fail.token != row.token {
-			t.Errorf("%q = key %q token %+v, want %q at %d", row.cmd, key, got.fail, row.key, row.token)
+		if key != row.key || got.fail == nil || got.fail.token != row.token || got.fail.off != row.off {
+			t.Errorf("%q = key %q token %+v, want %q at %d+%d", row.cmd, key, got.fail, row.key, row.token, row.off)
 		}
 	}
 }

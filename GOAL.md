@@ -348,9 +348,11 @@ Mojang server over the wire.
   order and bounded invalid-number/mixed-syntax controls. The same source-frame
   resolver now covers execute if blocks/items/data and store block blockpos
   arguments plus positioned/facing vec3, with mixed/invalid syntax pinned.
-  Direct /setblock, /fill, /clone, /data and /item block positions use the
-  same frame resolver; /spawnpoint, /setworldspawn, /place, /fillbiome and
-  other command block-position consumers remain open.
+  Direct /setblock, /fill, /clone, /data, /item, /spawnpoint and
+  /setworldspawn block positions use the same frame resolver; /place,
+  /fillbiome and other command block-position consumers remain open. Local
+  parse failures now use native cursor offsets: mixed triples at the argument
+  start, numeric failures after the caret, exponents after the numeric prefix.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
   file/tag events survive native save/restart. Startup load/tick tags and measured
@@ -20428,5 +20430,18 @@ Native source is official Minecraft Java Edition 26.2/protocol 776, extracted ru
 - **Pinned:** `TestDataItemLocalPositionParity` passes native 2.22s / Go 1.53s (11.90s total), covering local get/merge/remove, custom-name removal, sign merge, target+source modify, item replace/from/modify, a rotated execute frame and all mixed/invalid keys. Existing gates pass: data commands 12.64s, inventory command results 101.10s and item SNBT 405.29s. Focused units pin exact token indices and direct/execute source frames. `go build ./...`, `go vet ./...`, tagged blackbox compilation and `go test -p 2 ./... -count=1 -timeout 25m` exit 0 (internal/server 301.34s, default blackbox 116.65s). Source patch (four production files plus two tests) SHA-256 `ecac858959f886103debd0805d2b1249837a7fccccd25997c1909a2ca6b4bcdf`; file hashes are `dc53c51f…`/`e966498c…`/`c1eda008…`/`3e3088ba…`/`eaa4aaaa…`/`56f3f073…`.
 
 Scope: `/spawnpoint`, `/setworldspawn`, `/place`, `/fillbiome` and other command block-position consumers still use their older parsers. Arbitrary item-modifier loot-function application, neutral-executor eye anchors and complete error-cursor grammar remain separate.
+
+Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supplied the observations; no native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8, GOMAXPROCS=2.
+
+
+## Slice — spawnpoint/setworldspawn local positions (2026-11-06)
+
+- **Measured:** Native 26.2 accepts caret positions in `/setworldspawn` and in `/spawnpoint` after the optional target. `/setworldspawn ^ ^ ^1` stores and broadcasts block (8,-60,9) with zero rotation; `/setworldspawn ^ ^ ^1 45 0` stores yaw45/pitch0. `/spawnpoint @s ^ ^ ^1` and `@s ^ ^ ^1 90 0` store the same local point. A bare `/spawnpoint ^ ^ ^1` is not a position: the greedy optional target parser rejects it with `argument.entity.invalid`, while `/spawnpoint 10 -60 20` reaches `argument.pos3d.incomplete`. Mixed triples report `argument.pos.mixed` at the argument start; `^NaN` reports `parsing.double.expected` after the caret; `^ ^ ^1e2` reports `command.expected.separator` after the numeric prefix. The unchanged Go probe rejected local `setworldspawn` and `spawnpoint @s` positions with `parsing.int.expected`. A delayed join default-spawn packet exposed a fixed 400 ms fixture window, not a command difference.
+
+- **Implemented:** Route both optional-position branches through `parseBlockPosCommand`, preserving each command's absolute integer/~ parser, target grammar and rotation handling. Align `validateLocalTriple` cursor marks with the native BlockPosArgument behavior for every local consumer: mixed triples at the argument start, numeric failures one byte after the caret, and exponent failures after the numeric prefix. The spawn fixture now drains the join burst through a chat barrier before attributing packets to commands.
+
+- **Pinned:** Extended `TestSpawnCommandParity` passes (45.89s) with local spawnpoint/setworldspawn positions, rotations, every mixed/invalid cursor and the default-spawn broadcast. The existing local gates pass after the cursor change: block edit 13.58s, data/item 12.95s, biome 18.80s, block 20.34s, loaded 12.66s and remaining execute positions 15.00s. Focused units pin exact token/offset pairs. `go build ./...`, `go vet ./...`, tagged blackbox compilation and `go test -p 2 ./... -count=1 -timeout 25m` exit 0 (internal/server 315.13s, default blackbox 120.64s). Source patch (two production files plus five tests) SHA-256 `72a3c737c5689fd2bcb5210acc3afae4e9ab87b4ab553477b14970cfc86e7d1f`; file hashes are `2e3aca0f…`/`c88e348c…`/`015c0173…`/`e6b90c48…`/`97232ffe…`/`15dd3ed5…`/`0fa8bd7a…`.
+
+Scope: `/place`, `/fillbiome` and other command block-position consumers still use their older parsers. `/spawnpoint` local positions require an explicit target because the native optional-target grammar is greedy. Neutral-executor eye anchors and arbitrary command-source rotation contexts remain separate.
 
 Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supplied the observations; no native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8, GOMAXPROCS=2.

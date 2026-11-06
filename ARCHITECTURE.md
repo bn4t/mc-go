@@ -1700,7 +1700,10 @@ triples; the plan compiler validates and resolves positioned locally. Direct
 `/setblock`, `/fill` and `/clone` positions use the same source snapshot and
 floored local resolution while their absolute integer/~ parsers stay in place.
 The `/data` block target and from-block source sites and both `/item` block
-target/source parsers share it too. `/spawnpoint`, `/setworldspawn`, `/place`,
+target/source parsers share it too. `/spawnpoint` (after its optional target)
+and `/setworldspawn` use the same resolver for their optional position, with
+native cursor offsets: mixed triples mark the argument start, numeric failures
+mark after the caret and exponents mark after the numeric prefix. `/place`,
 `/fillbiome` and other command block-position consumers, complete error cursor
 ranges, biome tags and biome unloaded-query errors remain separate.
 

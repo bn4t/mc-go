@@ -63,6 +63,17 @@ func TestSpawnCommandParity(t *testing.T) {
 		`spawnpoint @s 0 1000 0`,
 		`spawnpoint @s 0 0 0 360`,
 		`spawnpoint @s 0 0 0 -270`,
+		`tp @s 8.5 -60 8.5 0 0`,
+		`spawnpoint @s ^ ^ ^1`,
+		`spawnpoint @s ^ ^ ^1 90 0`,
+		`spawnpoint @s ^ ~ ^1`,
+		`spawnpoint @s ^NaN ^ ^`,
+		`spawnpoint @s ^ ^ ^1e2`,
+		`setworldspawn ^ ^ ^1`,
+		`setworldspawn ^ ^ ^1 45 0`,
+		`setworldspawn ^ ~ ^`,
+		`setworldspawn ^NaN ^ ^`,
+		`setworldspawn ^ ^ ^1e2`,
 		`setworldspawn`,
 		`setworldspawn 8 -60 8`,
 		`setworldspawn 8 -60 8 45`,
@@ -81,6 +92,11 @@ func TestSpawnCommandParity(t *testing.T) {
 		sink := newChatSink(pr, pw)
 		sink.cap = 1 << 20
 		time.Sleep(400 * time.Millisecond)
+		// Drain the join burst through a command barrier so a delayed
+		// default-spawn packet cannot be attributed to the first command.
+		sendCommand(t, pw, "say SPAWNPARITY_READY")
+		waitForExactSayBB(t, sink, "SPAWNPARITY_READY", 10*time.Second)
+		sink.take()
 		var out [][]string
 		for _, cmd := range cmds {
 			sink.take()

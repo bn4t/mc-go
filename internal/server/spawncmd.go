@@ -153,7 +153,7 @@ func (s *Server) runSpawnpoint(player string, args []string) reply {
 		}
 	case len(rest) >= 3:
 		var pr *reply
-		pos, pr = s.parseBlockPos(sender, rest, 2)
+		pos, pr = s.parseBlockPosCommand(player, sender, rest, 2)
 		if pr != nil {
 			return *pr
 		}
@@ -218,7 +218,7 @@ func (s *Server) runSetWorldSpawn(player string, args []string) reply {
 		}
 	case len(args) >= 3:
 		var pr *reply
-		pos, pr = s.parseBlockPos(sender, args, 1)
+		pos, pr = s.parseBlockPosCommand(player, sender, args, 1)
 		if pr != nil {
 			return *pr
 		}
