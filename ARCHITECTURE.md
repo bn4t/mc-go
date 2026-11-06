@@ -1703,9 +1703,12 @@ The `/data` block target and from-block source sites and both `/item` block
 target/source parsers share it too. `/spawnpoint` (after its optional target)
 and `/setworldspawn` use the same resolver for their optional position, with
 native cursor offsets: mixed triples mark the argument start, numeric failures
-mark after the caret and exponents mark after the numeric prefix. `/place`,
-`/fillbiome` and other command block-position consumers, complete error cursor
-ranges, biome tags and biome unloaded-query errors remain separate.
+mark after the caret and exponents mark after the numeric prefix. `/place`
+structure and feature positions and both `/fillbiome` corners also use it.
+Fillbiome normalizes the quantized quart box before writing and reporting its
+success coordinates, matching native for unaligned and reversed corners. Other
+command block-position consumers, complete error cursor ranges, biome tags and
+biome unloaded-query errors remain separate.
 
 Living attachment scale follows consumed dimensions independently of raw
 attribute values. Passenger vectors and vertical rider points retain double

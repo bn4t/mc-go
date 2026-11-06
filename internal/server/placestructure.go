@@ -23,12 +23,19 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 		if len(args) < 4 {
 			return errToken("argument.pos3d.incomplete", 3)
 		}
-		for axis := 0; axis < 3; axis++ {
-			value, err := parseCoord(args[axis+1], position[axis])
-			if err != nil {
-				return errToken("parsing.int.expected", axis+3)
+		if pos, r, local := s.commandLocalBlockPos(player, args[1:], 3); local {
+			if r != nil {
+				return *r
 			}
-			position[axis] = value
+			position = [3]int{pos.X, pos.Y, pos.Z}
+		} else {
+			for axis := 0; axis < 3; axis++ {
+				value, err := parseCoord(args[axis+1], position[axis])
+				if err != nil {
+					return errToken("parsing.int.expected", axis+3)
+				}
+				position[axis] = value
+			}
 		}
 	}
 	if len(args) > 4 {

@@ -348,11 +348,13 @@ Mojang server over the wire.
   order and bounded invalid-number/mixed-syntax controls. The same source-frame
   resolver now covers execute if blocks/items/data and store block blockpos
   arguments plus positioned/facing vec3, with mixed/invalid syntax pinned.
-  Direct /setblock, /fill, /clone, /data, /item, /spawnpoint and
-  /setworldspawn block positions use the same frame resolver; /place,
-  /fillbiome and other command block-position consumers remain open. Local
-  parse failures now use native cursor offsets: mixed triples at the argument
-  start, numeric failures after the caret, exponents after the numeric prefix.
+  Direct /setblock, /fill, /clone, /data, /item, /spawnpoint,
+  /setworldspawn, /place and both /fillbiome corners use the same frame
+  resolver; other command block-position consumers remain open. Fillbiome
+  reports and writes the normalized quart box for unaligned or reversed
+  corners. Local parse failures now use native cursor offsets: mixed triples at
+  the argument start, numeric failures after the caret, exponents after the
+  numeric prefix.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
   file/tag events survive native save/restart. Startup load/tick tags and measured
@@ -20443,5 +20445,18 @@ Native source is official Minecraft Java Edition 26.2/protocol 776, extracted ru
 - **Pinned:** Extended `TestSpawnCommandParity` passes (45.89s) with local spawnpoint/setworldspawn positions, rotations, every mixed/invalid cursor and the default-spawn broadcast. The existing local gates pass after the cursor change: block edit 13.58s, data/item 12.95s, biome 18.80s, block 20.34s, loaded 12.66s and remaining execute positions 15.00s. Focused units pin exact token/offset pairs. `go build ./...`, `go vet ./...`, tagged blackbox compilation and `go test -p 2 ./... -count=1 -timeout 25m` exit 0 (internal/server 315.13s, default blackbox 120.64s). Source patch (two production files plus five tests) SHA-256 `72a3c737c5689fd2bcb5210acc3afae4e9ab87b4ab553477b14970cfc86e7d1f`; file hashes are `2e3aca0f…`/`c88e348c…`/`015c0173…`/`e6b90c48…`/`97232ffe…`/`15dd3ed5…`/`0fa8bd7a…`.
 
 Scope: `/place`, `/fillbiome` and other command block-position consumers still use their older parsers. `/spawnpoint` local positions require an explicit target because the native optional-target grammar is greedy. Neutral-executor eye anchors and arbitrary command-source rotation contexts remain separate.
+
+Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supplied the observations; no native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8, GOMAXPROCS=2.
+
+
+## Slice — place/fillbiome local positions (2026-11-06)
+
+- **Measured:** Native 26.2 accepts caret positions in `/place structure`, `/place feature` and both `/fillbiome` corners. A direct player at (8.5,-60,8.5) yaw 0 places `swamp_hut ^ ^ ^1` at (8,-60,9); an execute frame at the same position with `rotated 90 0` resolves (7,-60,8). `place feature minecraft:oak ^ ^ ^1` from (24.5,-60,24.5) succeeds at (24,-60,25) and leaves `oak_log` at y -60..-58. `/fillbiome ^ ^ ^ ^ ^ ^1` reports count 1 and the normalized quart box (8,-60,8)..(8,-60,8); the rotated form reports count 2 and box (4,-60,8)..(8,-60,8), and a biome query at (7,-60,8) observes desert. Unaligned absolute corners (7..8) report 4..8, y -61..-59 reports -64..-60 with count 4, and both reversed absolute corners and local `^-1` report ascending boxes. Mixed triples report `argument.pos.mixed` at the argument start; `^NaN` reports `parsing.double.expected` after the caret; `^ ^ ^1e2` reports `command.expected.separator` after the numeric prefix. The unchanged Go probe rejected the local forms with `parsing.int.expected`. After local wiring, the unaligned/reversed fillbiome cases still exposed a separate native mismatch: Go reported raw endpoints and skipped a reversed-axis write, while native reported and wrote the normalized quart box.
+
+- **Implemented:** Resolve `/place structure` through `commandLocalBlockPos`, `/place feature` through `parseBlockPosCommand`, and both `/fillbiome` corners through the same source-frame parser while leaving their absolute integer/~ paths unchanged. Normalize the fillbiome quart box to per-axis min/max before the volume bound, biome writes and success reply; this matches native for unaligned and reversed corners without changing the existing filter or game-rule handling. No structure/feature placement semantics, biome tags or absolute parsing changed.
+
+- **Pinned:** New `TestPlaceFillBiomeLocalPositionParity` passes (12.90s) with full component-tree and key comparison for success/error replies, direct and execute-rotated sources, local/absolute corner mixes, unaligned and reversed quart boxes, physical oak-log and biome checks, and every mixed/invalid cursor. Existing gates pass: block-edit local 13.79s, data/item local 13.05s, execute block local 21.27s, execute loaded local 12.51s, execute remaining local 14.31s, place structure 17.75s, spawn commands 45.34s and world commands 13.93s. Focused units pin exact token/offset pairs, direct and rotated source frames, normalized fillbiome replies and actual biome writes. `go build ./...`, default `go vet ./...`, tagged blackbox compilation and `go test -p 2 ./... -count=1 -timeout 25m` exit 0 (internal/server 304.057s, default blackbox 118.525s). Source patch (three production files plus two tests) SHA-256 `73681715464e002d2305ba7e1422e4f473c767fd9f0ad069e432bacf4eae4aaf`; file hashes are `1c1a0144…`/`767be3c0…`/`38f33c38…`/`7c9f09c2…`/`b3fe24b8…`.
+
+Scope: other command block-position consumers, neutral-executor eye anchors, complete error-cursor ranges, biome tags and biome unloaded-query errors remain separate. General feature-placement differences remain outside this slice; the fixture uses an oak feature whose physical result matched. This slice does not audit `replace`-filter counting or arbitrary command-source rotation contexts.
 
 Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Commands and decoded packets supplied the observations; no native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8, GOMAXPROCS=2.

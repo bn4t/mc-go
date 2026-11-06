@@ -245,7 +245,7 @@ func (s *Server) runFillBiome(player string, args []string) reply {
 			r := errToken("argument.pos3d.incomplete", tokBase)
 			return [3]int{}, &r
 		}
-		return s.parseBlockPos(sess, args[i:], tokBase)
+		return s.parseBlockPosCommand(player, sess, args[i:], tokBase)
 	}
 	from, r := pos(args, 0, 1)
 	if r != nil {
@@ -291,14 +291,15 @@ func (s *Server) runFillBiome(player string, args []string) reply {
 	}
 	q := func(v int) int { return (v >> 2) << 2 }
 	q0, q1 := [3]int{q(from[0]), q(from[1]), q(from[2])}, [3]int{q(to[0]), q(to[1]), q(to[2])}
-	span := func(a, b int) int {
-		if a > b {
-			a, b = b, a
+	lo, hi := q0, q1
+	for axis := 0; axis < 3; axis++ {
+		if lo[axis] > hi[axis] {
+			lo[axis], hi[axis] = hi[axis], lo[axis]
 		}
-		return b/4 - a/4 + 1
 	}
+	span := func(a, b int) int { return b/4 - a/4 + 1 }
 	limit := s.gameRuleInt("minecraft:max_block_modifications")
-	vol := int64(span(q0[0], q1[0])) * int64(span(q0[1], q1[1])) * int64(span(q0[2], q1[2]))
+	vol := int64(span(lo[0], hi[0])) * int64(span(lo[1], hi[1])) * int64(span(lo[2], hi[2]))
 	if vol > int64(limit) {
 		return componentReply(commandError("commands.fillbiome.toobig",
 			int32(limit), vol))
@@ -319,9 +320,9 @@ func (s *Server) runFillBiome(player string, args []string) reply {
 		if d.biomes == nil {
 			d.biomes = map[[3]int]string{}
 		}
-		for qx := q0[0] / 4; qx <= q1[0]/4; qx++ {
-			for qy := q0[1] / 4; qy <= q1[1]/4; qy++ {
-				for qz := q0[2] / 4; qz <= q1[2]/4; qz++ {
+		for qx := lo[0] / 4; qx <= hi[0]/4; qx++ {
+			for qy := lo[1] / 4; qy <= hi[1]/4; qy++ {
+				for qz := lo[2] / 4; qz <= hi[2]/4; qz++ {
 					key := [3]int{qx, qy, qz}
 					eff := current
 					if prev, has := d.biomes[key]; has {
@@ -336,8 +337,8 @@ func (s *Server) runFillBiome(player string, args []string) reply {
 		d.biomesMu.Unlock()
 	}
 	return opsEchoReply(translatable("commands.fillbiome.success.count",
-		int32(n), int32(from[0]), int32(from[1]), int32(from[2]),
-		int32(to[0]), int32(to[1]), int32(to[2])))
+		int32(n), int32(lo[0]), int32(lo[1]), int32(lo[2]),
+		int32(hi[0]), int32(hi[1]), int32(hi[2])))
 }
 
 // blockPosLoaded reports whether a block position lies in a loaded

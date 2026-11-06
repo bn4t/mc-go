@@ -996,7 +996,7 @@ func (s *Server) runPlace(player string, args []string) reply {
 		}
 		var pos world.Pos
 		if len(args) > 2 {
-			bp, rep := s.parseBlockPos(sender, args[2:], 3)
+			bp, rep := s.parseBlockPosCommand(player, sender, args[2:], 3)
 			if rep != nil {
 				return *rep
 			}
