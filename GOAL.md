@@ -184,10 +184,14 @@ Mojang server over the wire.
       Natural spawning (caps, packs, placements, despawn) and
       chunk-generation creatures: `TestNaturalSpawn*Parity`.
       Frozen-world tracker cadence is wire-pinned: the sendChanges pass keeps
-      running under /tick freeze, a stationary mob answers pairing with tick 0's
-      zero-delta move_entity_pos, then emits one %60 forced periodic per minute
-      and a single teleportDelay absolute at tick 1200
-      (`TestStationaryFrozenTrackerCadenceParity`).
+      running under /tick freeze for every tracked non-player type, a
+      stationary body answers pairing with tick 0's zero-delta
+      move_entity_pos, then emits one %60 forced periodic per minute and a
+      single teleportDelay absolute at tick 1200 for iv-3 mobs (the iv-20
+      item leg holds no absolute in the same window)
+      (`TestStationaryFrozenTrackerCadenceParity`; wire runs also disprove
+      the 2026-09-27 harness lesson that a frozen summon emits no
+      add_entity — camel and item both pair at the command phase).
 - [x] Full entity type registry
 - [~] Physics, collision, AI, pathfinding: positioned player shapes, animated
       shulker/piston collision, Marker and NoGravity armor-stand policies, shulker/piston item
@@ -20491,3 +20495,16 @@ Native source is official Minecraft Java Edition 26.2/protocol 776, extracted ru
 Scope: stationary NoAI camel in a frozen world. The pass covers living mobs only — non-living trackers (items) and players are unchanged; moving-mob frozen behavior (vanilla freezes AI entirely), `/tick step` and sprint windows (separate pacing), the mounted-root %60 phase (the f7 gate's root absolutes now ride the same pass but are not separately phase-pinned) and the displays' one-tick shift (no existing pin) remain outside. The pairing tick's work inflation is a per-run constant; only its bound is asserted.
 
 Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, read with `javap -c -p` (MinecraftServer, ServerEntity, ChunkMap, PacketProcessor, ServerCommonPacketListenerImpl, Entity); behavior observed on the wire. No native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8.
+
+
+## Slice — frozen non-living tracker: items ride the frozen pass (2026-11-20)
+
+- **Measured:** `ChunkMap.tick` (javap) holds the single per-TrackedEntity sendChanges call gated on `sectionMoved || entity.needsSync || distanceManager.inEntityTickingRange(chunk)`, and its entityMap covers every tracked type — items, orbs, projectiles, vehicles, crystals, displays, the ender dragon and players — so the shipped frozen pass, which filtered `e.Living`, was structurally short of vanilla for non-living bodies. Wire: an item (updateInterval 20) summoned while a frozen world is frozen pairs exactly like the camel — add_entity flushes at the command phase (measured spawn→pairing-answer gaps 2.97ms, 7.64ms, 35.2ms, 33.9ms — all inside the first frame), tick 0's gate rides the `%60` forced branch for the zero-delta pairing answer, then exactly one zero-delta move_entity_pos per 60 frames (24 events in a ~70s window, the identical grid to the camel leg), and teleportDelay needs 400 gate-open calls (tick 8000) so no absolute exists anywhere in the window. These runs also disprove the 2026-09-27aa harness lesson that a frozen summon emits no add_entity — on the item side as the camel already did — the neighboring "summon intermittently produces no entity" retry lesson is the likely origin of that misread. A fixture-lesson by-product: vanilla 26.2's SNBT rejects an unquoted `id:minecraft:stone` ("Expected literal (" at the colon, reproduced against `net.minecraft.nbt.TagParser.parseCompoundFully` on the unpacked jar) — the first RED run's missing item spawn was this, not a pairing gap.
+
+- **Implemented:** `frozenMobTrackerStep` (living-only, dragon-excluded) is replaced by `frozenTrackerStep`: the frozen player-owned frame flushes every tracked non-player type — living mobs, the ender dragon (its own flush rides the freeze-gated `dragonTickStep`, so no double flush), items, orbs, projectiles, vehicles, crystals and displays — through the same `mobSyncFlush` with the same Dormant + simulation-range admission, at the same call site before the frozen mounted-callback work. Players stay excluded: mc-go syncs player movement through the session path, and vanilla's stationary-player periodic to other viewers (an iv-2 tracker) remains a recorded open gap.
+
+- **Pinned:** Extended `TestStationaryFrozenTrackerCadenceParity` (151.05s) with an item leg: the item's pairing answer is a zero-delta move_entity_pos, its periodics sit on the same one-per-60-frame grid with 60 ± 0.35-frame consecutive gaps and sub-frame residuals around a per-leg fitted phase, and the window holds zero absolutes while the camel's slot 1200 carries exactly one absolute with its summoned coordinates. The per-event wobble bound moved .45→.6 frames after one measured shared sag (0.53 frames across three consecutive events on both bodies' grids at once — a paced-loop wobble recorded in the fixture comment). Regression gates all pass in one oracle run (exit 0): TestDragonWallPartsParity (9.10s), TestFrozenInstantRegiveNoDoseParity (9.45s), TestFrozenMountedAgeParity (89.50s), TestFrozenMountedPortalCooldownParity (117.56s), TestFrozenMountedScaleCallbackParity (71.36s), TestFrozenPlayerAirCadenceParity (11.41s), TestFrozenPlayerPowderEventCadenceParity (60.36s), TestItemNeedsSyncParity (23.07s), TestFrozenItemPickupParity (22.30s), TestFrozenMenuAdminBroadcastParity (58.05s), TestItemSyncCadenceParity (14.87s). `go build ./...`, default `go vet ./...`, tagged blackbox compilation and `go test ./internal/...` exit 0. Source patch (call-site edit plus one new production file replacing the old pass, plus the extended fixture) SHA-256 `70ff8215add7464eee1f898334f921895be58377a3c52da2a432cdc7eec835ff`; file hashes are `54dc9882…`/`1568537b…`/`08d98aea…`.
+
+Scope: stationary NoGravity item and camel bodies in a frozen world; moving non-living bodies stay frozen (this pass is sync-only, no item aging or gravity advance), unfrozen item cadence stays with TestItemSyncCadenceParity, the stationary-player periodic (iv-2, %60 periodics plus 40s absolutes to other viewers) and `/tick step` window asymmetry remain recorded gaps.
+
+Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, read with `javap -c -p` (ChunkMap, ServerEntity) plus `TagParser.parseCompoundFully` executed on the unpacked jar for the SNBT charset; behavior observed on the wire. No native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8.
