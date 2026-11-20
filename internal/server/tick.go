@@ -646,6 +646,7 @@ func (s *Server) playerTickOwned() {
 	s.frozenPlayerEffectTick()
 	// Chunk-generation spawns land as chunks generate, frozen or not.
 	s.chunkGenSpawnStep()
+	s.frozenMobTrackerStep()
 	s.frozenMountedScaleCallbacksOwned()
 	s.digTickStep()
 	s.hungerTickStep()

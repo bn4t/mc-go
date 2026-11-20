@@ -447,11 +447,12 @@ func (s *Server) mobMoveSync(e *Entity) {
 	// the entity's type is NOT one of EntityType.trackDeltas' ten
 	// exclusions (the bytecode returns false only for those — every
 	// other type runs the drift check every gate-open), or a living
-	// entity is fall-flying. LivingEntity.aiStep's push latches
-	// needsSync every living tick, so a mob is always gated open and
-	// the drift check decides. Inside it, emit set_entity_motion when
-	// the current delta drifts farther than 1e-7 squared from the last
-	// sent one, or when it just turned exactly zero — a walking mob
+	// entity is fall-flying. needsSync is latched only at the measured
+	// sparse sites (knockback, jumpFromGround, startSleeping, Entity's
+	// push/load), so the interval cadence alone opens a resting mob's
+	// gate. Inside it, emit set_entity_motion when the current delta
+	// drifts farther than 1e-7 squared from the last sent one, or when
+	// it just turned exactly zero — a walking mob
 	// emits on accel/decel and stop, not per tick at cruise.
 	motionGate := e.NeedsSync || (e.Living && e.FallFlying)
 	if !motionGate {
@@ -486,13 +487,13 @@ func (s *Server) mobMoveSync(e *Entity) {
 	dx, dy, dz := sx-e.syncPX, sy-e.syncPY, sz-e.syncPZ
 	// TrackedPosition.delta().lengthSqr() threshold, block space.
 	posChanged := float64(dx*dx+dy*dy+dz*dz)/(4096.0*4096.0) >= 7.62939453125e-6
-	// Vanilla's periodic-resync reads the ENTITY's tickCount — one past
-	// this tracker's on the first sendChanges — so it never forces a
-	// position packet on the tick-0 gate. PosDirty (vanilla's
-	// syncPosition needsSync, latched by snapTo at summon) forces the
-	// position branch even when the delta is zero — the pairing burst
-	// answers with a zero-delta move_entity_pos.
-	pos := posChanged || e.PosDirty || (e.SyncCount+1)%60 == 0
+	// Vanilla's periodic-resync (ServerEntity.sendChanges bytecode offsets
+	// 531-538) reads the tracker's OWN tickCount — the same pre-increment
+	// counter the interval gate reads off `this` — so a fresh tracker's
+	// first sendChanges (tickCount 0) forces the position branch too.
+	// PosDirty (vanilla's syncPosition needsSync, latched at pairing)
+	// keeps a summoned entity's pairing answer from depending on it.
+	pos := posChanged || e.PosDirty || e.SyncCount%60 == 0
 	deltaTooBig := dx < -32768 || dx > 32767 || dy < -32768 || dy > 32767 || dz < -32768 || dz > 32767
 	// AbstractArrow (arrow, spectral_arrow, trident) always emits
 	// PosRot on a gate-open tick — vanilla's instanceof check skips
@@ -544,8 +545,11 @@ func (s *Server) mobMoveSync(e *Entity) {
 	}
 	e.wasOnGround = e.Grounded
 	e.PosDirty = false
-	// ServerEntity.sendChanges' tail clears needsSync — latched
-	// again next living tick by aiStep's push.
+	// ServerEntity.sendChanges' tail clears needsSync. The latch sites are
+	// sparse by measurement: LivingEntity.knockback, jumpFromGround and
+	// startSleeping, plus Entity.push (collision) and Entity.load (NBT) —
+	// not every living tick, so a stationary body stays gate-closed
+	// between interval boundaries.
 	e.NeedsSync = false
 	yHeadB := angleByte(e.HeadYaw)
 	if mobByteDiff(yHeadB, e.lastYHeadB) >= 1 {
