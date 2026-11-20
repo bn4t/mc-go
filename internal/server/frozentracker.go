@@ -29,12 +29,13 @@ func (s *Server) frozenTrackerStep() {
 	s.entities.mu.RLock()
 	ents := make([]*Entity, 0, len(s.entities.byID))
 	for _, e := range s.entities.byID {
-		// mc-go syncs a player's own movement through its session path,
-		// never the mob tracker — vanilla's stationary-player periodic to
-		// other viewers (an iv-2 tracker) is a recorded open gap. Every
-		// other tracked type rides this pass like vanilla's entityMap:
-		// living mobs, the ender dragon, items, orbs, projectiles,
-		// vehicles, crystals and displays alike.
+		// Players flush through their own per-frame pass
+		// (playerHeadTrackingTick → mobSyncFlush, which also covers
+		// them while frozen), so this pass skips them to avoid a
+		// second flush per frame. Every other tracked type rides
+		// this pass like vanilla's entityMap: living mobs, the ender
+		// dragon, items, orbs, projectiles, vehicles, crystals and
+		// displays alike.
 		if e.Type == playerType {
 			continue
 		}

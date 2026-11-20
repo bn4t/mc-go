@@ -189,6 +189,16 @@ func (s *Server) dismount(sess *Session) {
 	sess.setPos(dx, dy, dz, yaw, pitch, og)
 	s.entities.Update(rider, dx, dy, dz, yaw, pitch, og)
 	s.broadcastEntityTeleport(sess, rider, dx, dy, dz, yaw, pitch, og)
+	// Dismount played the tracker's absolute role (vanilla's
+	// wasRiding condition in ServerEntity.sendChanges selects the
+	// absolute and resets teleportDelay), so latch the fresh record:
+	// the per-frame player pass measures zero delta from the dismount
+	// spot instead of replaying the hop, and the 401-gate periodic
+	// clock restarts with the absolute.
+	if re, ok := s.entities.GetPtr(rider); ok {
+		s.latchSyncBaseline(re)
+		re.teleportDelay = 0
+	}
 	_ = s.sendSyncPos(sess, dx, dy, dz)
 }
 

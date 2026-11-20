@@ -120,6 +120,17 @@ func (s *Server) applyPlayerRecordMoveContextOwned(ctx context.Context, p *playe
 // because privileged teleports may enter blocks.
 func (s *Server) commitPlayerPoseOwned(p *playerRecord, pose frontend.Movement) {
 	s.commitPlayerPoseWithEffectsOwned(p, pose, nil)
+	// The teleport seam played vanilla's absolute role, and
+	// ServerEntity resets teleportDelay on every absolute send —
+	// measured: the next forced absolute lands 401 gate-opens (802
+	// ticks at the player's interval 2) after the teleport, while the
+	// %60 periodic grid keeps its own phase. Regular movement does
+	// not reset the clock, like vanilla's delta sends.
+	if eid := p.entityID.Load(); eid != 0 {
+		if e, ok := s.entities.GetPtr(eid); ok {
+			e.teleportDelay = 0
+		}
+	}
 }
 
 func (s *Server) commitPlayerPoseWithEffectsOwned(p *playerRecord, pose frontend.Movement, afterPosition func()) {
@@ -137,6 +148,17 @@ func (s *Server) commitPlayerPoseWithEffectsOwned(p *playerRecord, pose frontend
 			}
 		}
 		s.broadcastEntityTeleport(p.java, eid, pose.X, pose.Y, pose.Z, pose.Yaw, pose.Pitch, pose.OnGround)
+		// The session echo just played the tracker's part for this
+		// movement, so re-latch the send baselines: the per-frame
+		// player pass (playerHeadTrackingTick → mobSyncFlush) then
+		// measures zero delta instead of replaying every movement as
+		// a second absolute, and a player that goes stationary keeps
+		// the plain sendChanges cadence — pairing answer, %60 forced
+		// periodics, teleportDelay absolute — like vanilla's
+		// TrackedEntity.
+		if e, ok := s.entities.GetPtr(eid); ok {
+			s.latchSyncBaseline(e)
+		}
 	}
 	s.publishPlayerMovedOwned(p)
 }
