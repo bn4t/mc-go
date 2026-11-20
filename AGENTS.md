@@ -274,7 +274,11 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - On this four-core managed host, limit real-oracle runs to two JVMs using
   `/tmp/mcgo-oracle.lock` and `/tmp/mcgo-oracle-secondary.lock`, one lock per
   top-level test invocation. These paths are local coordination conventions,
-  not prerequisites for other environments.
+  not prerequisites for other environments. A second concurrent JVM can sag
+  a pacing-window pin running in the other invocation by ~2 frames
+  (measured: frozen-cadence consecutive gaps 57.75/60.57 while a parallel
+  verification JVM booted; the same pin passed 60 ± 0.05 sequentially) —
+  batches containing frame-window pins get one lock, sequential only.
 - Vanilla measurements for mob goals use the unpacked jar at
   `vanilla/versions/26.2/server-26.2.jar` (created by running the
   bundler jar once, e.g. the datagen command in README.md).
