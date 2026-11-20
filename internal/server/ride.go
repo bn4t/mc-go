@@ -708,6 +708,21 @@ func (s *Server) rideTickStep(sess *Session) {
 	sx, sy, sz := playerSeatPos(veh, sess.entityID.Load(), sess.collisionScale)
 	ox, oy, oz, yaw, pitch, og := sess.Pos()
 	sess.setPos(sx, sy, sz, yaw, pitch, og)
+	// positionRider welds the rider ENTITY's record to the seat every
+	// tick, not just the session — selectors, damage geometry and the
+	// saved pose all read the welded seat. The tracker's passenger
+	// branch (ServerEntity.sendChanges' isPassenger path) rebases the
+	// delta codec silently and never ships a position packet for a
+	// rider, so the weld latches the sync base with no broadcast; the
+	// dismount's wasRiding-absolute is the seam that republishes the
+	// record.
+	if re, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
+		if re.X != sx || re.Y != sy || re.Z != sz {
+			re.X, re.Y, re.Z = sx, sy, sz
+			re.syncPX, re.syncPY, re.syncPZ = mobFixed(sx), mobFixed(sy), mobFixed(sz)
+			re.syncInit = true
+		}
+	}
 	s.rideMoveStats(sess, veh, sx-ox, sy-oy, sz-oz)
 	if !s.entityInLava(sess, veh) {
 		sess.lavaRideSet = false
@@ -988,7 +1003,23 @@ func (s *Server) vehicleTickStep() {
 		// bottom meets a solid top, where the vertical collision flag
 		// latches. mc-go's boats never move, so the settled reading is
 		// simply "a solid block directly under the box bottom".
+		//
+		// The boat's ServerEntity also gets its sendChanges walk every
+		// world tick, motion or not: a stationary grounded boat answers
+		// pairing (tick-0 %60 zero-delta move_entity_pos), ships
+		// zero-delta periodics, promotes the settle's onGround flip to
+		// an entity_position_sync at the next interval boundary, and
+		// resyncs once teleportDelay passes 400 (401 x interval 3 =
+		// 1203 ticks after the last absolute). The flush runs before
+		// the grounded latch so the summon tick pairs with the flag
+		// still false — vanilla's absolute rides the first boundary
+		// after the settle's physics move, not the pairing itself. A
+		// hurt boat keeps the eager wobble path below, which owns
+		// SyncCount for the countdown.
 		if name, ok := EntityTypeName(ep.Type); ok && isBoatEntityName(name) {
+			if !ep.Dying && !ep.Dormant && ep.VehHurtTime <= 0 && ep.VehDamage <= 0 {
+				s.mobSyncFlush(ep)
+			}
 			if d := s.dimensionByName(ep.Dim); d != nil {
 				ep.Grounded = boatGroundedAt(d.w, ep)
 			}

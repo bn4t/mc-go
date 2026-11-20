@@ -278,6 +278,18 @@ func (s *Server) runRideDismount(rider *dataEntity) reply {
 	if veh == nil {
 		return componentReply(commandError("commands.ride.not_riding", rider.nameComp()))
 	}
+	// RideCommand.dismount is Entity.stopRiding — the same
+	// removePassenger/dismountUpdatePosition path a client dismount
+	// takes. The player branch shares s.dismount's measured landing
+	// search (a boat drops the rider at the side-escape offset, not
+	// back on the vehicle) and its tracker seam; a mob rider drops at
+	// the vehicle position and arms the 60-tick boardingCooldown like
+	// Entity.removePassenger.
+	if rider.sess != nil {
+		s.dismount(rider.sess)
+		return opsEchoReply(translatable("commands.ride.dismount.success",
+			rider.nameComp(), entityDisplayName(veh)))
+	}
 	keep := veh.Passengers[:0]
 	for _, p := range veh.Passengers {
 		if p != id {
@@ -286,14 +298,7 @@ func (s *Server) runRideDismount(rider *dataEntity) reply {
 	}
 	veh.Passengers = append([]int32(nil), keep...)
 	s.broadcastSetPassengers(veh)
-	// The rider's client snaps back to a real position once it stops
-	// riding; vanilla teleports it to the vehicle's spot.
-	if rider.sess != nil {
-		rider.sess.riding.Store(0)
-		x, y, z, yaw, pitch, _ := rider.sess.Pos()
-		x, y, z = veh.X, veh.Y, veh.Z
-		s.teleportPlayerRot(rider.sess.getName(), x, y, z, yaw, pitch)
-	} else if rp, ok := s.entities.GetPtr(id); ok {
+	if rp, ok := s.entities.GetPtr(id); ok {
 		// A mob rider drops at the vehicle's position too — and
 		// Entity.removePassenger arms its 60-tick boardingCooldown.
 		rp.Riding = 0
@@ -340,11 +345,18 @@ func (s *Server) runRideMount(sender *Session, rider *dataEntity, vehTok string)
 	if rider.sess != nil {
 		rider.sess.riding.Store(vid)
 		vehEnt.VehAnchor = [3]float64{vehEnt.X, vehEnt.Y, vehEnt.Z}
-		_, _, _, yaw, pitch, _ := rider.sess.Pos()
-		// Seat at mount like positionRider does — rideTickStep measures
-		// ride stats from the seat, not the pre-mount position.
+		// Seat at mount like positionRider does — rideTickStep
+		// measures ride stats from the seat, and the next ride tick
+		// welds the entity record there. startRiding sends the rider
+		// no position to TRACKERS (set_passengers carries the render),
+		// but ServerPlayer.startRiding (offsets 10-38) answers the
+		// rider's own connection: positionRider welds the seat, then
+		// connection.teleport(position, ZERO, Set.of(ROTATION)) — a
+		// rotation-masked position sync carrying the welded seat.
+		_, _, _, yaw, pitch, og := rider.sess.Pos()
 		sx, sy, sz := playerSeatPos(vehEnt, rider.sess.entityID.Load(), rider.sess.collisionScale)
-		s.teleportPlayerRot(rider.sess.getName(), sx, sy, sz, yaw, pitch)
+		rider.sess.setPos(sx, sy, sz, yaw, pitch, og)
+		_ = s.sendSyncPosFlags(rider.sess, sx, sy, sz, 0, 0, syncRelRot)
 	}
 	s.broadcastSetPassengers(vehEnt)
 	return opsEchoReply(translatable("commands.ride.mount.success",

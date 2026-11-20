@@ -694,6 +694,12 @@ func (s *Server) sendJoinGame(sess *Session) error {
 // sendSyncPos teleports the player to x,y,z. Teleport flags 0 means
 // absolute coordinates; each call issues a fresh teleport id (the spawn
 // teleport is 1) for the client to confirm.
+// syncRelRot are the Relative.ROTATION flags a mount answers with
+// (Y_ROT | X_ROT): ServerPlayer.startRiding teleports the rider's own
+// connection to the welded seat with zero yaw/pitch masked relative,
+// so the client keeps its look while taking the absolute seat.
+const syncRelRot = 1<<3 | 1<<4
+
 // syncRelRotDelta are the Relative flags a portal transition sends
 // (Relative.ROTATION + Relative.DELTA: Y_ROT, X_ROT, DELTA_X/Y/Z,
 // ROTATE_DELTA): the client keeps its rotation (turned by the yaw
