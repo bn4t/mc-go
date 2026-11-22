@@ -8,7 +8,10 @@ package world
 // chunk locations (24-bit big-endian sector offset plus an 8-bit
 // sector count) and 1024 four-byte modification timestamps - then
 // 4 KiB-aligned chunk records. Each record is a big-endian length, a
-// compression byte (1 gzip, 2 zlib, 3 none), and an NBT chunk compound.
+// version byte (1 gzip, 2 zlib, 3 none, 4 the LZ4 block stream), and
+// an NBT chunk compound; a record whose byte has the 0x80 flag set is
+// a five-byte stub whose compressed payload lives in a c.<x>.<z>.mcc
+// file beside the region.
 //
 // mc-go stores only generator deltas as block overrides; a region
 // write materializes every chunk that contains an override into the
@@ -17,6 +20,7 @@ package world
 
 import (
 	"bytes"
+	"compress/gzip"
 	"compress/zlib"
 	"encoding/binary"
 	"fmt"
@@ -525,7 +529,15 @@ func ReadRegionFile(path string) (map[[2]int32]map[string]any, error) {
 	return out, nil
 }
 
-// readRegionFile parses one .mca file into chunk NBT payloads.
+// readRegionFile parses one .mca file into chunk NBT compounds keyed
+// by region-local chunk coordinates. Every record version the real
+// 26.2 reader accepts is read: zlib, gzip, none and LZ4 payloads, and
+// external records whose payload lives in a c.<x>.<z>.mcc file beside
+// the region. A record that fails to decode - an unknown version, a
+// missing external file, a truncated or corrupt payload, NBT the
+// reader rejects - is a chunk that is not there, not a broken file:
+// the real reader logs it and regenerates the column, and this reader
+// leaves the chunk to the generator the same way.
 func readRegionFile(path string) (map[chunkKey]map[string]any, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -534,6 +546,7 @@ func readRegionFile(path string) (map[chunkKey]map[string]any, error) {
 	if len(raw) < 2*regionSectors {
 		return nil, fmt.Errorf("region %s: truncated header", path)
 	}
+	rx, rz := regionFileCoords(path)
 	out := map[chunkKey]map[string]any{}
 	for i := 0; i < regionChunks*regionChunks; i++ {
 		loc := binary.BigEndian.Uint32(raw[i*4 : i*4+4])
@@ -548,38 +561,104 @@ func readRegionFile(path string) (map[chunkKey]map[string]any, error) {
 		}
 		recLen := int(binary.BigEndian.Uint32(raw[start : start+4]))
 		comp := raw[start+4]
-		payload := raw[start+5 : min(start+5+recLen-1, len(raw))]
-		var plain []byte
-		switch comp {
-		case compressZlib:
-			zr, err := zlib.NewReader(bytes.NewReader(payload))
-			if err != nil {
-				return nil, fmt.Errorf("region %s: chunk %d zlib: %w", path, i, err)
-			}
-			plain, err = io.ReadAll(zr)
-			zr.Close()
-			if err != nil {
-				return nil, err
-			}
-		case compressGzip:
-			return nil, fmt.Errorf("region %s: chunk %d gzip unsupported", path, i)
-		case compressNone:
-			plain = payload
-		default:
-			return nil, fmt.Errorf("region %s: chunk %d compression %d", path, i, comp)
+		lx, lz := i%regionChunks, i/regionChunks
+		plain, ok := regionRecordPayload(path, raw, start, count, recLen, comp,
+			rx*regionChunks+lx, rz*regionChunks+lz)
+		if !ok {
+			continue
 		}
 		name, root, err := nbt.ReadNamed(bytes.NewReader(plain))
 		_ = name
 		if err != nil {
-			return nil, fmt.Errorf("region %s: chunk %d nbt: %w", path, i, err)
+			continue
 		}
 		compound, ok := root.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("region %s: chunk %d root not compound", path, i)
+			continue
 		}
-		out[chunkKey{int32(i % regionChunks), int32(i / regionChunks)}] = compound
+		out[chunkKey{int32(lx), int32(lz)}] = compound
 	}
 	return out, nil
+}
+
+// regionRecordPayload decodes one record, mirroring the real reader's
+// per-record outcomes. ok=false means the record is treated as never
+// saved: its column regenerates from the generator.
+func regionRecordPayload(path string, raw []byte, start, sectors, recLen int, comp byte, cx, cz int) ([]byte, bool) {
+	if recLen == 0 {
+		// "Chunk {} is allocated, but stream is missing".
+		return nil, false
+	}
+	payloadLen := recLen - 1
+	if comp&0x80 != 0 {
+		// External record: the region file holds only the five-byte
+		// stub, and the payload - compressed by the stub's version -
+		// lives in a c.<x>.<z>.mcc beside it. A stub that also carries
+		// a length is warned about and still read externally; a
+		// missing or non-regular side file makes the record unread.
+		mcc := filepath.Join(filepath.Dir(path), fmt.Sprintf("c.%d.%d.mcc", cx, cz))
+		info, err := os.Stat(mcc)
+		if err != nil || !info.Mode().IsRegular() {
+			return nil, false
+		}
+		payload, err := os.ReadFile(mcc)
+		if err != nil {
+			return nil, false
+		}
+		return decompressRecordPayload(payload, comp&0x7F)
+	}
+	// The payload must fit inside the record's own sector allocation
+	// ("Chunk {} stream is truncated"), and its declared size must not
+	// run backwards ("Declared size {} of chunk {} is negative").
+	if payloadLen < 0 {
+		return nil, false
+	}
+	if 5+payloadLen > sectors*regionSectors || start+5+payloadLen > len(raw) {
+		return nil, false
+	}
+	return decompressRecordPayload(raw[start+5:start+5+payloadLen], comp)
+}
+
+// decompressRecordPayload unwraps one payload under its record version
+// byte. The versions are the real reader's RegionFileVersion table: 1
+// gzip, 2 zlib, 3 none, 4 the jpountz LZ4 block stream; an unknown id,
+// and the custom codec id 127 the real server never registers, is
+// reported as invalid and skipped.
+func decompressRecordPayload(payload []byte, version byte) ([]byte, bool) {
+	switch version {
+	case compressZlib:
+		zr, err := zlib.NewReader(bytes.NewReader(payload))
+		if err != nil {
+			return nil, false
+		}
+		plain, err := io.ReadAll(zr)
+		zr.Close()
+		if err != nil {
+			return nil, false
+		}
+		return plain, true
+	case compressGzip:
+		gr, err := gzip.NewReader(bytes.NewReader(payload))
+		if err != nil {
+			return nil, false
+		}
+		plain, err := io.ReadAll(gr)
+		gr.Close()
+		if err != nil {
+			return nil, false
+		}
+		return plain, true
+	case compressNone:
+		return payload, true
+	case compressLZ4:
+		plain, err := decodeLZ4BlockStream(payload)
+		if err != nil {
+			return nil, false
+		}
+		return plain, true
+	default:
+		return nil, false
+	}
 }
 
 // LoadRegion restores overrides from every region file under

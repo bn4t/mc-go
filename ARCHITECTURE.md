@@ -1555,9 +1555,13 @@ still block saving. Physical slots
 establish replacement authority independently of declared NBT Position. Failed
 loads block writes, and partial writes retain their footprint for the next save.
 Unselected compressed records and timestamps survive unchanged. Writes remain
-nontransactional across files and provide no fsync guarantee. Gzip/external
-entity reads remain unsupported and block saves; replacement of an external
-record can orphan its sidefile. Export without loading grants no authority over
+nontransactional across files and provide no fsync guarantee. Entity and chunk
+region records now read in every version the real reader accepts — zlib, gzip,
+none, LZ4 block streams and external c.<x>.<z>.mcc stubs — and a record that
+fails to decode is a chunk that was never saved, so only a truncated nonzero
+header still blocks saves. The writer stays deflate-only and in-file, so
+replacing an external record can orphan its sidefile. Export without loading
+grants no authority over
 preexisting roots. This does not implement runtime entity unloading.
 
 Mounted entity/player command save views and entitySaveMap consumers serialize
