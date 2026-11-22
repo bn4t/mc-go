@@ -208,12 +208,6 @@ func TestTickingStateParity(t *testing.T) {
 		ca, pra, pwa := joinPlayBlackbox(t, addr, "TickA")
 		defer ca.Close()
 		sa := newChatSinkTP(pra, pwa)
-		cb, prb, pwb := joinPlayBlackbox(t, addr, "TickB")
-		defer cb.Close()
-		sb := newChatSinkTP(prb, pwb)
-		// No pre-drain on A: the join burst's ticking_state/ticking_step
-		// pair (vanilla's updateJoiningPlayer) is the first entries.
-		time.Sleep(400 * time.Millisecond)
 
 		var res result
 		var allA, allB []string
@@ -226,6 +220,26 @@ func TestTickingStateParity(t *testing.T) {
 			allA = append(allA, lines...)
 		}
 		drainB := func(lines []string) { allB = append(allB, lines...) }
+		// Admission barrier: which wire catches whose join chat must
+		// be policy, not wall-clock luck. A's admission (the joined
+		// fan-out included) can complete well after the harness's
+		// join returns — mc-go's join preparation warms destination
+		// caches outside ownership before the play switch, and the
+		// 2026-11-22 sweep-2 mc-go leg measured it outlasting B's
+		// whole handshake: "TickA joined" landed on B's wire and A
+		// never saw "TickB joined". A say round trip on A's wire
+		// proves admission ran — commands are processed only after
+		// admission on both servers — so the sequences compared
+		// below encode the chat-routing policy, not boot luck.
+		drainA(collectCmd(t, pwa, sa, "TICK-ADMIT"))
+		cb, prb, pwb := joinPlayBlackbox(t, addr, "TickB")
+		defer cb.Close()
+		sb := newChatSinkTP(prb, pwb)
+		// The barrier drain keeps A's own join burst's
+		// ticking_state/ticking_step pair (vanilla's
+		// updateJoiningPlayer) the first entries of the sequences.
+		time.Sleep(400 * time.Millisecond)
+
 		// phase runs one of A's commands and drains both wires of its
 		// consequences — B's wire holds the admin echo of A's reply.
 		phase := func(cmd, tag string) []string {
