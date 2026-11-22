@@ -349,14 +349,14 @@ func (s *Server) runRideMount(sender *Session, rider *dataEntity, vehTok string)
 		// measures ride stats from the seat, and the next ride tick
 		// welds the entity record there. startRiding sends the rider
 		// no position to TRACKERS (set_passengers carries the render),
-		// but ServerPlayer.startRiding (offsets 10-38) answers the
-		// rider's own connection: positionRider welds the seat, then
-		// connection.teleport(position, ZERO, Set.of(ROTATION)) — a
-		// rotation-masked position sync carrying the welded seat.
+		// but ServerPlayer.startRiding (offsets 10-85) answers the
+		// rider's own connection with the same arm an interact mount
+		// gets: the rotation-masked position sync carrying the welded
+		// seat, then the vehicle's live effects.
 		_, _, _, yaw, pitch, og := rider.sess.Pos()
 		sx, sy, sz := playerSeatPos(vehEnt, rider.sess.entityID.Load(), rider.sess.collisionScale)
 		rider.sess.setPos(sx, sy, sz, yaw, pitch, og)
-		_ = s.sendSyncPosFlags(rider.sess, sx, sy, sz, 0, 0, syncRelRot)
+		s.sendStartRidingAnswer(rider.sess, vehEnt, sx, sy, sz)
 	}
 	s.broadcastSetPassengers(vehEnt)
 	return opsEchoReply(translatable("commands.ride.mount.success",

@@ -3,6 +3,7 @@ package server
 import (
 	"math"
 	"math/rand"
+	"sort"
 	"strings"
 
 	"mc-go/internal/protocol"
@@ -135,8 +136,10 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 	sess.riding.Store(eid)
 	// positionRider seats the rider on mount: the server's player pos
 	// is the seat from the first ride tick, so the seat-follow never
-	// counts the mount hop as ridden distance. set_passengers carries
-	// the render — no teleport packet.
+	// counts the mount hop as ridden distance. The own-connection
+	// answer (rotation-masked sync + live vehicle effects) precedes
+	// the set_passengers broadcast; trackers read the render from the
+	// broadcast alone.
 	_, _, _, yaw, pitch, og := sess.Pos()
 	if isEquineName(name) {
 		// AbstractHorse.doPlayerRide: setEating(false) +
@@ -154,8 +157,62 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 	}
 	sx, sy, sz := playerSeatPos(veh, sess.entityID.Load(), sess.collisionScale)
 	sess.setPos(sx, sy, sz, yaw, pitch, og)
+	s.sendStartRidingAnswer(sess, veh, sx, sy, sz)
 	s.broadcastSetPassengers(veh)
 	s.fireStartedRiding(sess)
+}
+
+// sendStartRidingAnswer is ServerPlayer.startRiding's answer to the
+// mounting rider's own connection (javap offsets 10-85): the seat
+// positionRider welded goes out as the rotation-masked position sync
+// (PositionMoveRotation(position, ZERO, 0f, 0f), Set.of(ROTATION)),
+// then — for a living vehicle — PlayerList.sendActiveEffects ships
+// one update_mob_effect per live vehicle effect. set_passengers
+// follows in the caller; the tracker pass never repeats it to the
+// rider (ServerEntity.sendChanges' passenger filter skips viewers
+// whose own membership changed).
+func (s *Server) sendStartRidingAnswer(sess *Session, veh *Entity, sx, sy, sz float64) {
+	_ = s.sendSyncPosFlags(sess, sx, sy, sz, 0, 0, syncRelRot)
+	s.sendVehicleActiveEffects(sess, veh)
+}
+
+// sendVehicleActiveEffects is PlayerList.sendActiveEffects: one
+// update_mob_effect per live instance, written only down the
+// mounting rider's own connection (trackers keep reading the effect
+// through entity data and the periodic attribute resend). The packet
+// constructor's blend argument is false on this path, so the blend
+// bit (0x08) never survives to the rider. Duration is the instance's
+// live remaining, -1 for the infinite form. Vanilla's activeEffects
+// map is a plain HashMap (javap: Maps.newHashMap in
+// LivingEntity.<init>), so its order is unspecified — mc-go walks
+// effect ids ascending.
+func (s *Server) sendVehicleActiveEffects(sess *Session, veh *Entity) {
+	if len(veh.Effects) == 0 {
+		return
+	}
+	ids := make([]int32, 0, len(veh.Effects))
+	for id := range veh.Effects {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		inst := veh.Effects[id]
+		remaining := int32(inst.expiry - s.clock.count)
+		if inst.expiry < 0 {
+			remaining = -1
+		}
+		flags := inst.flags
+		if !inst.flagsSet {
+			flags = mobEffectFlags(inst.hide)
+		}
+		var b protocol.Buffer
+		b.VarInt(veh.ID)
+		b.VarInt(id)
+		b.VarInt(inst.amplifier)
+		b.VarInt(remaining)
+		b.Byte(flags &^ 0x08)
+		_ = sess.writeMobEffect776(b.Bytes(), false)
+	}
 }
 
 // dismount is Entity.stopRiding for a player: drop the rider off the
