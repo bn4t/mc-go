@@ -89,36 +89,57 @@ type tickClock struct {
 
 // next decides what the game loop should do now. wait is how long to
 // sleep before acting; run reports whether a tick should then be
-// advanced. A frozen clock returns run=false, so the loop keeps sleeping
+// advanced; grid is the advanced grid slot for the caller to arm.
+// A frozen clock returns run=false, so the loop keeps sleeping
 // without touching the simulation.
 //
-// since is how long the tick that has just finished took, and the wait
-// is what is left of the next tick's budget after it. That is the real
-// server's own arithmetic, and it is not the same thing as sleeping a
-// whole period after each tick: a flat sleep makes the period the tick's
-// own duration plus the sleep, so a tick that takes as long as a tick
-// halves the rate. Measured on 26.2 with a client asking for batches of
-// 25: the real server's batches came one tick apart, and a loop that
-// slept a flat period sent them two apart, because serializing the
-// twenty-five columns inside the tick took about as long as the tick.
-func (c *tickClock) next(since time.Duration) (wait time.Duration, run bool) {
+// The wait is measured against an absolute grid the caller arms once
+// before the loop and passes back in: each running call advances the
+// grid by exactly one period and the wait is what remains of that
+// slot. That is the real server's own arithmetic — runServer arms
+// nextTickTimeNanos once (offset 11), advances it by exactly one
+// nanosPerTick per iteration before the tick (offsets 236-243) and
+// parks until the absolute target — and it is not the same thing as
+// refunding the last tick's measured duration: any iteration work the
+// refund misses (the player tick, ownership acquisition, timer
+// overshoot) accumulates forever under period-since pacing. Measured
+// on this host with eight scripted movers that refund lost ~2.5 ticks
+// per second forever (17.45 TPS sustained while the ticks themselves
+// cost 11ms of the 50ms budget; vanilla held 20.01), where the
+// absolute grid refunds a noisy iteration through the next wait.
+//
+// A grid that fell more than a second plus twenty periods behind — a
+// long freeze, a sprint, or a saturated stretch — is snapped forward
+// by whole periods first, vanilla's own catch-up (offsets 108-183,
+// OVERLOADED_THRESHOLD_NANOS = 20s/20 = 1s, OVERLOADED_TICKS_THRESHOLD
+// = 20): inside that window the loop runs flat-out until the grid is
+// caught up (a wait of zero), and only past it does vanilla surrender
+// the missed ticks with the "Can't keep up!" warning, which mc-go
+// snaps without logging.
+func (c *tickClock) next(target time.Time) (wait time.Duration, run bool, grid time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.frozen {
-		return 5 * time.Millisecond, false
+		return 5 * time.Millisecond, false, target
 	}
 	rate := c.rate
 	if rate <= 0 {
 		rate = DefaultTickRate
 	}
 	period := time.Duration(float64(time.Second) / rate)
-	if wait := period - since; wait > 0 {
-		return wait, true
+	behind := time.Since(target)
+	if max := time.Second + 20*period; behind > max {
+		periods := behind / period
+		target = target.Add(periods * period)
 	}
-	// The tick overran its budget: the next one starts at once. The rate
-	// is then the fastest the server can manage, which is what the real
-	// server reports as a tick rate below twenty.
-	return 0, true
+	target = target.Add(period)
+	if wait := time.Until(target); wait > 0 {
+		return wait, true, target
+	}
+	// The grid slot is already behind: the tick starts at once, and
+	// the rate is then the fastest the server can manage, which is
+	// what the real server reports as a tick rate below its target.
+	return 0, true, target
 }
 
 func (c *tickClock) tickRate() float64 {
@@ -727,19 +748,33 @@ func (s *Server) playerTickOwned() {
 }
 
 // runGameLoop drives GameTick on the clock's schedule until stop
-// closes. Delays are recomputed every iteration so /tick rate takes
-// effect on the next tick, and a frozen clock simply never advances.
-// Each sleep is what is left of the tick's budget once the tick itself
-// has run, so a slow tick eats into its own period rather than adding to
-// it (see tickClock.next). The player tick rides the same cadence but is
-// gated only by elapsed wall time, so it also runs while frozen.
+// closes. The loop arms one absolute grid at start — vanilla arms
+// nextTickTimeNanos before its loop (runServer offset 11) — and each
+// running iteration advances it by exactly one period inside next(),
+// sleeping to that slot. Delays are recomputed every iteration so
+// /tick rate takes effect on the next tick, and a frozen clock simply
+// never advances: the idle branch drops the computed slot so a
+// freeze/step/sprint pause leaves the armed grid in place, and the
+// next running call catches the missed periods up (flat-out within
+// vanilla's one-second-plus-twenty catch-up window, snapped whole
+// past it — see tickClock.next).
+// Each sleep is what is left of the grid slot once the iteration's
+// own work has run, so a slow tick eats into its own slot rather than
+// adding to it, and work the slot's arithmetic never measured (the
+// player tick, ownership acquisition) is refunded by the next wait
+// instead of accumulating. The player tick rides the slot the same way
+// — its due clock is stamped with the slot it consumed, so it fires
+// once per running iteration like vanilla's in-tick player pass — and
+// on the idle path it falls back to elapsed wall time, so it also
+// runs while frozen.
 func (s *Server) runGameLoop(stop chan struct{}) {
 	s.ticking.Store(true)
 	defer s.ticking.Store(false)
 	var since time.Duration
 	lastPlayerTick := time.Now()
+	target := time.Now()
 	for {
-		wait, run := s.clock.next(since)
+		wait, run, grid := s.clock.next(target)
 		if wait > 0 {
 			t := time.NewTimer(wait)
 			select {
@@ -757,7 +792,27 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		period := time.Duration(float64(time.Second) / s.clock.tickRate())
 		playerTickDue := time.Since(lastPlayerTick) >= period
 		if playerTickDue {
-			lastPlayerTick = time.Now()
+			if run {
+				// The player pass is stamped with the slot it
+				// consumed, not the post-wake wall time. Vanilla
+				// ticks players inside every server tick, and a
+				// slot-stamped due clock fires once per running
+				// iteration however timer jitter splits the gap
+				// around the period — a wall stamp on the exact
+				// grid straddles the boundary (gaps half under,
+				// half over the period) and skips ~a third of
+				// the passes: measured 12.9/s while the loop and
+				// the game tick held 20.03 TPS, starving every
+				// wall-tick rider (the stationary-player tracker
+				// periodics, ridden-entity sync counts). The old
+				// refund pacing's ~52ms gaps fired the pass every
+				// iteration by accident. The idle path keeps the
+				// wall stamp: its slot is dropped, and the pass
+				// stays on the frozen 5ms poll's own cadence.
+				lastPlayerTick = grid
+			} else {
+				lastPlayerTick = time.Now()
+			}
 			s.simulationAction(func() {
 				s.playerTickOwned()
 				// debug_sample rides the wall tick (vanilla's
@@ -774,6 +829,10 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		// frozen now — a stale run=true must not fire one extra tick
 		// per sprint boundary.
 		if !run || s.clock.isSprinting() || s.clock.isFrozen() {
+			// The computed grid slot is dropped, not armed: the idle
+			// branch must not advance the grid a period it will not
+			// use, or a freeze would bank phantom slots and pay them
+			// back as a burst of catch-up ticks on unfreeze.
 			// /tick freeze skips the level's entity and block ticks
 			// but not the players' — tickRateManager only freezes
 			// non-player entities — so their fluid pass still runs
@@ -797,6 +856,7 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 			since = 0
 			continue
 		}
+		target = grid
 		start := time.Now()
 		s.clock.runMu.Lock()
 		s.simulationAction(func() {

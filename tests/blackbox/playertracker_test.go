@@ -202,14 +202,32 @@ func TestStationaryPlayerTrackerCadenceParity(t *testing.T) {
 			slots[k] = slot{e.at, i}
 		}
 		phase := ftMedian(dev)
+		// The per-event wobble bound is sized to the measured host
+		// distribution, not to vanilla's best day: the slice's
+		// export-verification run measured VANILLA's own leg sagging
+		// 0.67 frames off its fitted grid with consecutive gaps
+		// 59.33..60.70 — while mc-go's leg passed even the old 0.6
+		// bound — and the frozen/rider legs the same day sagged up
+		// to 2.76, so the bound sits above all of it at 3 frames,
+		// matching those pins. It still carries the structure: a leg
+		// with one grid constant passes, a drifting or doubled grid
+		// does not.
 		for i, d := range dev {
-			if d-phase > .6 || d-phase < -.6 {
+			if d-phase > 3 || d-phase < -3 {
 				t.Errorf("%s periodic %d sits %.2f frames off its leg's fitted grid", addr, i, d-phase)
 			}
 		}
-		if phase > 2.5 || phase < -2.5 {
-			t.Errorf("%s periodic grid %.2f frames from the pairing answer, want within 2.5", addr, phase)
-		}
+		// The grid's phase relative to the pairing answer is NOT
+		// pinned: how many ticks the first gate-open trails the %60
+		// origin is vanilla's own boot luck (measured −1.75 at this
+		// pin's recording, and −4.00..−11.82 across seven boots on
+		// 2026-11-22, each constant within its window) — wall-clock
+		// phase minutiae the vanilla server itself does not hold
+		// stably. What IS gameplay structure stays pinned above: the
+		// per-event wobble (the grid is phase-LOCKED — one constant
+		// plus sub-frame jitter), the exact 60-multiple spacing with
+		// no slot skipped or doubled, zero-delta bodies, and the one
+		// teleportDelay absolute ~802 frames after the teleport.
 		for k := 1; k <= pinnedSlots; k++ {
 			if _, ok := slots[k]; !ok {
 				t.Errorf("%s missing periodic at multiple %d (tick %d)", addr, k, 60*k)
@@ -218,15 +236,17 @@ func TestStationaryPlayerTrackerCadenceParity(t *testing.T) {
 		// The teleportDelay absolute does not replace a multiple: 401
 		// gate-opens at interval 2 is 802 ≡ 22 (mod 60), so the
 		// absolute lands BETWEEN two periodics (measured on both
-		// servers) and the grid itself stays unbroken — every gap is
-		// one exact 60-tick multiple, never a skipped or doubled
-		// slot.
-		for i := 1; i < len(grid); i++ {
-			g := float64(grid[i].at.Sub(grid[i-1].at)) / float64(frame)
-			if g < 59.65 || g > 60.35 {
-				t.Errorf("%s grid gap %.2f frames, want one event per 60-tick multiple", addr, g)
-			}
-		}
+		// servers) — a replaced periodic would leave its multiple
+		// missing, which the completeness check above fails.
+		// Consecutive-gap spacing is deliberately NOT asserted: the
+		// slice's export-verification run measured VANILLA's own
+		// running grid at 59.33..60.70-frame gaps while every
+		// structural check held (all pinned slots present, no
+		// duplicates, one fitted grid constant, zero-delta bodies) —
+		// a missing or doubled slot fails the completeness,
+		// duplicate and wobble checks, which is the gameplay
+		// structure; the raw gap mirrors the paced loop's own sag,
+		// which vanilla does not promise.
 	}
 
 	run(targets.vanilla)
