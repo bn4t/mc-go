@@ -39,16 +39,36 @@ func TestWorldSaveParity(t *testing.T) {
 	// cover the parts of a chunk the format has to get right: a block
 	// buried under the terrain, one high above it (a heightmap the
 	// generator never produces), one whose column holds a non-solid
-	// block, and one that replaces a generated block.
+	// block, and one that replaces a generated block. The leaves take
+	// their persistent form: the bare id places the default state
+	// (persistent=false, distance=7), which the real server's random
+	// tick crumbles (TestLeafDecayParity pins that), so a loaded
+	// vanilla window of any length races it - the persistent form is
+	// the same non-solid, light-filtering column without the race.
 	saveBlocks := []struct {
 		command string
 		pos     [3]int
 		name    string
+		props   map[string]string
 	}{
-		{"setblock 5 -50 5 minecraft:stone", [3]int{5, -50, 5}, "minecraft:stone"},
-		{"setblock 5 100 5 minecraft:glass", [3]int{5, 100, 5}, "minecraft:glass"},
-		{"setblock 9 -60 9 minecraft:oak_leaves", [3]int{9, -60, 9}, "minecraft:oak_leaves"},
-		{"setblock 12 -61 12 minecraft:stone_bricks", [3]int{12, -61, 12}, "minecraft:stone_bricks"},
+		{"setblock 5 -50 5 minecraft:stone", [3]int{5, -50, 5}, "minecraft:stone", nil},
+		{"setblock 5 100 5 minecraft:glass", [3]int{5, 100, 5}, "minecraft:glass", nil},
+		{"setblock 9 -60 9 minecraft:oak_leaves[persistent=true]", [3]int{9, -60, 9}, "minecraft:oak_leaves", map[string]string{"persistent": "true"}},
+		{"setblock 12 -61 12 minecraft:stone_bricks", [3]int{12, -61, 12}, "minecraft:stone_bricks", nil},
+	}
+	// wantStates resolves each block to the exact state both servers
+	// place, so the leg-C file comparison builds the same palette.
+	wantStates := map[[3]int]world.Block{}
+	for _, b := range saveBlocks {
+		named := strings.TrimPrefix(b.name, "minecraft:")
+		st, ok := world.BlockState(named)
+		if ok && b.props != nil {
+			st, ok = world.BlockStateOf(named, b.props)
+		}
+		if !ok {
+			t.Fatalf("unknown block %s", b.name)
+		}
+		wantStates[b.pos] = st
 	}
 	positions := make([][3]int, 0, len(saveBlocks))
 	want := map[[3]int]string{}
@@ -135,7 +155,7 @@ func TestWorldSaveParity(t *testing.T) {
 
 	// C: the chunk mc-go writes for this world state.
 	t.Run("chunk format", func(t *testing.T) {
-		compareChunkFormat(t, savedDir, want)
+		compareChunkFormat(t, savedDir, wantStates)
 	})
 
 	t.Run("mc-go reads vanilla's world", func(t *testing.T) {
@@ -281,10 +301,7 @@ func TestWorldSaveParity(t *testing.T) {
 			t.Fatalf("read the world the real server saved: %v", err)
 		}
 		for _, b := range saveBlocks {
-			wantBlock, ok := world.BlockState(strings.TrimPrefix(b.name, "minecraft:"))
-			if !ok {
-				t.Fatalf("unknown block %s", b.name)
-			}
+			wantBlock := wantStates[b.pos]
 			p := world.Pos{X: b.pos[0], Y: b.pos[1], Z: b.pos[2]}
 			if got := reload.GetBlock(p); got != wantBlock {
 				name := "unknown"
@@ -380,7 +397,7 @@ func setGameRule(t *testing.T, pw *protocol.Writer, name, value string) {
 // light arrays has to match: the real server stores light and mc-go
 // does not, which is why the chunk says isLightOn=0 and the real server
 // lights the chunk itself.
-func compareChunkFormat(t *testing.T, savedDir string, blocks map[[3]int]string) {
+func compareChunkFormat(t *testing.T, savedDir string, blocks map[[3]int]world.Block) {
 	t.Helper()
 	vanillaChunk := readChunkAt(t, savedDir, 0, 0)
 
@@ -390,12 +407,8 @@ func compareChunkFormat(t *testing.T, savedDir string, blocks map[[3]int]string)
 	// The shared flat world generates in the_void (dimension.go's
 	// SetBiome), so the scratch copy writes the same palette.
 	w.SetBiome("minecraft:the_void")
-	for pos, name := range blocks {
-		b, ok := world.BlockState(strings.TrimPrefix(name, "minecraft:"))
-		if !ok {
-			t.Fatalf("unknown block %s", name)
-		}
-		w.SetBlock(world.Pos{X: pos[0], Y: pos[1], Z: pos[2]}, b)
+	for pos, st := range blocks {
+		w.SetBlock(world.Pos{X: pos[0], Y: pos[1], Z: pos[2]}, st)
 	}
 	outDir := t.TempDir()
 	// Through the same entry point a real save uses, so the write lands
@@ -438,28 +451,29 @@ func compareChunkFormat(t *testing.T, savedDir string, blocks map[[3]int]string)
 	}
 
 	// Sections: the real server stores light in some of them, so only
-	// the block data and the biome palette are compared.
-	vs, vok := vanillaChunk["sections"].(nbt.List)
-	ms, mok := mcgoChunk["sections"].(nbt.List)
-	if !vok || !mok {
-		t.Fatalf("sections missing or not a list: vanilla %v, mc-go %v", vok, mok)
-	}
-	if len(vs.Items) != len(ms.Items) {
-		t.Fatalf("sections: vanilla %d, mc-go %d", len(vs.Items), len(ms.Items))
-	}
-	if len(vs.Items) == 0 {
-		t.Fatal("neither chunk has a section, so the comparison below measures nothing")
-	}
+	// the block data and the biome palette are compared. The real
+	// server's own save is not section-count-stable: measured across
+	// three boots with this recipe, it saved 24, 25 and 24 sections,
+	// the 25th being a section below the world range (Y=-5) that
+	// carries only a SkyLight array - no blocks, no biomes - and its
+	// appearance is per-boot save luck, not world state. Comparing
+	// list lengths or list positions would pin that luck (a 25-boot
+	// also shifts every position by one), so sections pair by their Y
+	// over the world range both servers must cover; vanilla may
+	// additionally carry light-only sections outside that range, which
+	// are checked to be light-only and recorded.
+	vsec := chunkSectionsByY(t, vanillaChunk)
+	msec := chunkSectionsByY(t, mcgoChunk)
+	tolerateVanillaExtraSections(t, vsec)
 	litSections := 0
-	for i := range vs.Items {
-		vsec, _ := vs.Items[i].(map[string]any)
-		msec, _ := ms.Items[i].(map[string]any)
-		if vsec == nil || msec == nil {
-			t.Fatalf("section %d is not a compound", i)
+	for y := worldSaveSectionLo; y <= worldSaveSectionHi; y++ {
+		v, m := vsec[y], msec[y]
+		if v == nil || m == nil {
+			t.Fatalf("section Y=%d: vanilla present=%v, mc-go present=%v", y, v != nil, m != nil)
 		}
-		for _, field := range []string{"Y", "block_states", "biomes"} {
-			if av, bv := renderField(vsec[field]), renderField(msec[field]); av != bv {
-				t.Errorf("section %d %s: vanilla %s, mc-go %s", i, field, av, bv)
+		for _, field := range []string{"block_states", "biomes"} {
+			if av, bv := renderField(v[field]), renderField(m[field]); av != bv {
+				t.Errorf("section Y=%d %s: vanilla %s, mc-go %s", y, field, av, bv)
 			}
 		}
 		// The light arrays are what the block data comparison above must
@@ -470,17 +484,17 @@ func compareChunkFormat(t *testing.T, savedDir string, blocks map[[3]int]string)
 		// mc-go writing light would mean the two chunks were being
 		// compared field by field while differing in a field this test
 		// never reads.
-		if _, ok := vsec["SkyLight"]; ok {
+		if _, ok := v["SkyLight"]; ok {
 			litSections++
 		}
-		if _, ok := msec["SkyLight"]; ok {
-			t.Errorf("section %d: mc-go writes light, which the comparison above skips", i)
+		if _, ok := m["SkyLight"]; ok {
+			t.Errorf("section Y=%d: mc-go writes light, which the comparison above skips", y)
 		}
 	}
 	if litSections == 0 {
 		t.Error("no section of the real server's chunk carries light, so skipping the light comparison measures nothing")
 	}
-	t.Logf("the real server lit %d of %d sections; mc-go writes no light at all", litSections, len(vs.Items))
+	t.Logf("the real server lit %d of %d world-range sections; mc-go writes no light at all", litSections, 24)
 	// isLightOn is the documented divergence: mc-go writes no light, so
 	// it says so and the real server lights the chunk when it loads it.
 	if v, ok := vanillaChunk["isLightOn"].(int8); !ok || v != 1 {
@@ -534,6 +548,69 @@ func readChunkAt(t *testing.T, worldDir string, cx, cz int32) map[string]any {
 	return c
 }
 
+// The flat comparison world spans y -64..320, so a complete chunk save
+// covers sections Y=-4..19: twenty-four of them, the range both
+// servers' saves are compared over.
+const (
+	worldSaveSectionLo = int8(-4)
+	worldSaveSectionHi = int8(19)
+)
+
+// chunkSectionsByY keys a chunk's sections list by its Y field, so
+// comparisons pair by the section's position in the world rather than
+// by list order. The real server's save is not position-stable: it
+// sometimes appends a light-only section outside the world range
+// (measured: Y=-5, SkyLight only, on one boot of three with an
+// otherwise identical recipe), which sorts before the world range and
+// would shift every positional pairing by one.
+func chunkSectionsByY(t *testing.T, chunk map[string]any) map[int8]map[string]any {
+	t.Helper()
+	list, ok := chunk["sections"].(nbt.List)
+	if !ok {
+		t.Fatalf("sections missing or not a list")
+	}
+	out := make(map[int8]map[string]any, len(list.Items))
+	for i := range list.Items {
+		sec, ok := list.Items[i].(map[string]any)
+		if !ok {
+			t.Fatalf("section %d is not a compound", i)
+		}
+		y, ok := sec["Y"].(int8)
+		if !ok {
+			t.Fatalf("section %d has no Y byte", i)
+		}
+		if _, dup := out[y]; dup {
+			t.Fatalf("two sections share Y=%d", y)
+		}
+		out[y] = sec
+	}
+	return out
+}
+
+// tolerateVanillaExtraSections records the real server's sections
+// outside the world range, failing if one carries anything but light.
+// The measured extra section is a below-world SkyLight array whose
+// appearance is per-boot save luck - a client never reads it, and the
+// real server loads both shapes - so it is recorded rather than
+// compared; an out-of-range section carrying block or biome state
+// would be a real divergence this test must not hide.
+func tolerateVanillaExtraSections(t *testing.T, secs map[int8]map[string]any) {
+	t.Helper()
+	for y, sec := range secs {
+		if y >= worldSaveSectionLo && y <= worldSaveSectionHi {
+			continue
+		}
+		if _, ok := sec["block_states"]; ok {
+			t.Errorf("vanilla section Y=%d is outside the world range and carries block states", y)
+		}
+		if _, ok := sec["biomes"]; ok {
+			t.Errorf("vanilla section Y=%d is outside the world range and carries biomes", y)
+		}
+		t.Logf("the real server saved an extra light-only section Y=%d outside the world range; its appearance is per-boot save luck", y)
+	}
+}
+
+
 // vanillaLogHas reports whether the marker text has reached the
 // vanilla server's console log yet.
 func vanillaLogHas(dir, marker string) bool {
@@ -566,23 +643,24 @@ func compareSavedLight(t *testing.T, vanillaDir, mcgoDir string) {
 	if v, ok := mc["isLightOn"].(int8); !ok || v != 1 {
 		t.Errorf("mc-go chunk isLightOn = %v, want 1", mc["isLightOn"])
 	}
-	vs, _ := vc["sections"].(nbt.List)
-	ms, _ := mc["sections"].(nbt.List)
-	if len(vs.Items) != len(ms.Items) {
-		t.Fatalf("sections: vanilla %d, mc-go %d", len(vs.Items), len(ms.Items))
-	}
+	// Pair by Y, not list position: the real server's save sometimes
+	// carries an extra light-only section below the world range
+	// (measured Y=-5; see chunkSectionsByY), which shifts positions
+	// and is save luck, not world state.
+	vs := chunkSectionsByY(t, vc)
+	ms := chunkSectionsByY(t, mc)
+	tolerateVanillaExtraSections(t, vs)
 	lit := 0
-	for i := range vs.Items {
-		vsec, _ := vs.Items[i].(map[string]any)
-		msec, _ := ms.Items[i].(map[string]any)
+	for y := worldSaveSectionLo; y <= worldSaveSectionHi; y++ {
+		vsec, msec := vs[y], ms[y]
 		if vsec == nil || msec == nil {
-			t.Fatalf("section %d is not a compound", i)
+			t.Fatalf("section Y=%d: vanilla present=%v, mc-go present=%v", y, vsec != nil, msec != nil)
 		}
 		for _, key := range []string{"SkyLight", "BlockLight"} {
 			vb, vok := vsec[key].([]byte)
 			mb, mok := msec[key].([]byte)
 			if vok != mok {
-				t.Errorf("section %d %s: vanilla present=%v, mc-go present=%v", i, key, vok, mok)
+				t.Errorf("section Y=%d %s: vanilla present=%v, mc-go present=%v", y, key, vok, mok)
 				continue
 			}
 			if !vok {
@@ -603,7 +681,7 @@ func compareSavedLight(t *testing.T, vanillaDir, mcgoDir string) {
 						count++
 					}
 				}
-				t.Errorf("section %d %s: arrays differ (len v=%d m=%d, first diff byte %d, %d total; v=%#02x m=%#02x)", i, key, len(vb), len(mb), diff, count, vb[diff], mb[diff])
+				t.Errorf("section Y=%d %s: arrays differ (len v=%d m=%d, first diff byte %d, %d total; v=%#02x m=%#02x)", y, key, len(vb), len(mb), diff, count, vb[diff], mb[diff])
 			}
 		}
 	}
