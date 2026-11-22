@@ -118,7 +118,29 @@ func TestEntParity(t *testing.T) {
 		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
 		sink := newChatSink(pr, pw)
 		sink.cap = 1 << 20
-		time.Sleep(400 * time.Millisecond)
+		// The join's spawn SyncPos (teleport id 1) is the first
+		// position sync on the stream; mc-go's whole join bundle can
+		// land later than any fixed budget (measured on this host:
+		// vanilla +213ms, mc-go +738ms past the PlayerLoaded ack), so
+		// wait for it instead of sleeping a fixed drain — a fixed
+		// budget lets the spawn sync leak into the first command's
+		// window.
+		joinDeadline := time.Now().Add(30 * time.Second)
+		joined := false
+		for time.Now().Before(joinDeadline) {
+			for _, line := range sink.take() {
+				if strings.HasPrefix(line, "0x48:") {
+					joined = true
+				}
+			}
+			if joined {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if !joined {
+			t.Fatalf("%s: join spawn sync never arrived", addr)
+		}
 		var out [][]string
 		for i, cmd := range cmds {
 			sink.take()
