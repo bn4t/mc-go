@@ -214,6 +214,14 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   guards and split food/status/lifetime receipts when diagnosing cloud effects.
   For splash no-status assertions, require a positive companion effect on the
   same recipient so a missed throw cannot masquerade as correct dispatch.
+- Pin gameplay-relevant behavior, not wall-clock timing minutiae the
+  vanilla server itself does not hold stably (boot-dependent phase
+  constants, host-sag wobble in a paced loop). Verify functionally on
+  the packet level that the servers work the same — exact counts and
+  kinds, tick-relative structure such as one-per-N-tick spacing with
+  no slot skipped or doubled, packet bodies — and size any
+  wall-clock guard only to catch gross divergence, from measurement,
+  never to mirror vanilla's own jitter.
 - Each server leg must independently satisfy meaningful expected values.
   Equal empty captures, stale menu caches or a decoder that truncates unknown
   definitions do not establish parity. Diagnose fixture failures on an
