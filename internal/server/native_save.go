@@ -39,6 +39,9 @@ type nativeWorldSaveSnapshot struct {
 	playerErr       error
 	captureErr      error
 	entityOwnership map[string]nativeEntityOwnership
+	// compression is the codec the snapshot's entity-region merge
+	// writes with; the chunk snapshots already carry it.
+	compression world.RegionCodec
 }
 
 func (snapshot *nativeWorldSaveSnapshot) write() error {
@@ -57,7 +60,7 @@ func (snapshot *nativeWorldSaveSnapshot) write() error {
 		if err := d.chunks.Write(snapshot.level.Dir, d.name); err != nil {
 			return err
 		}
-		if err := world.MergeEntityRegions(world.DimensionDir(snapshot.level.Dir, d.name), d.entities); err != nil {
+		if err := world.MergeEntityRegions(world.DimensionDir(snapshot.level.Dir, d.name), snapshot.compression, d.entities); err != nil {
 			return err
 		}
 		if d.fight != nil {
@@ -166,6 +169,7 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 		Spawn: [3]int{floor(sx), floor(sy), floor(sz)}, GameRules: rules,
 	}}
 	snapshot.entityOwnership = map[string]nativeEntityOwnership{}
+	snapshot.compression = s.RegionCompression
 	scheduledTicks := s.captureScheduledChunkTicksOwned()
 	for name, d := range s.dims {
 		selection := s.captureNativeEntitySelectionOwned(d)
@@ -177,6 +181,7 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 			func(cx, cz int) []map[string]any { return s.chunkBlockEntities(d, cx, cz) },
 			func(cx, cz int) *world.ChunkLight { return d.savedLight(cx, cz) },
 			scheduledTicks[name])
+		chunks.SetRegionCompression(s.RegionCompression)
 		var fight map[string]any
 		if d.fight != nil {
 			fight = d.fight.saveNBT()

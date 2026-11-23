@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -364,31 +365,120 @@ func packHeightmap(vals [256]int32) []int64 {
 }
 
 // encodeRegion renders one region file: header, then each chunk record
-// at its sector offset. Returns nil when the region holds no chunks.
-func encodeRegion(chunks map[chunkKey][]byte) []byte {
+// at its sector offset. version is the record version byte the caller's
+// codec writes. Returns nil data when the region holds no chunks. A
+// record large enough for regionExternalChunkThreshold sectors is
+// stored externally: the returned map carries its payload for a
+// c.<x>.<z>.mcc file beside the region, and the in-file record is the
+// 5-byte stub the native writer leaves (length 1, version byte with
+// the external flag set).
+func encodeRegion(chunks map[chunkKey][]byte, version byte) ([]byte, map[chunkKey][]byte) {
 	if len(chunks) == 0 {
-		return nil
+		return nil, nil
 	}
 	header := make([]byte, 2*regionSectors)
 	var body bytes.Buffer
 	nextSector := 2 // header occupies sectors 0-1
+	externals := map[chunkKey][]byte{}
 	for _, ck := range sortedChunkKeys(chunks) {
 		payload := chunks[ck]
-		// Record: 4-byte length + 1-byte compression + zlib payload.
+		// Record: 4-byte length + 1-byte version + payload.
 		recLen := 1 + len(payload)
 		sectors := (4 + recLen + regionSectors - 1) / regionSectors
 		lx, lz := int(ck.X&31), int(ck.Z&31)
 		entry := lx + lz*regionChunks
+		recVersion := version &^ 0x80
+		external := sectors >= regionExternalChunkThreshold
+		if external {
+			// Oversized records live in a side file; the stub's
+			// version byte keeps the codec and adds the external
+			// flag.
+			externals[ck] = payload
+			sectors = 1
+			recLen = 1
+			recVersion |= 0x80
+		}
 		binary.BigEndian.PutUint32(header[entry*4:entry*4+4], uint32(nextSector<<8|sectors&0xFF))
 		binary.BigEndian.PutUint32(header[regionSectors+entry*4:], uint32(time.Now().Unix()))
 		rec := make([]byte, sectors*regionSectors)
 		binary.BigEndian.PutUint32(rec, uint32(recLen))
-		rec[4] = compressZlib
-		copy(rec[5:], payload)
+		rec[4] = recVersion
+		if !external {
+			copy(rec[5:], payload)
+		}
 		body.Write(rec)
 		nextSector += sectors
 	}
-	return append(header, body.Bytes()...)
+	return append(header, body.Bytes()...), externals
+}
+
+// externalChunkPath is the side file an external record's payload
+// lives in (measured: RegionFile names it c.<x>.<z>.mcc beside the
+// region file, x and z the chunk's global coordinates).
+func externalChunkPath(regionDir string, x, z int32) string {
+	return filepath.Join(regionDir, fmt.Sprintf("c.%d.%d.mcc", x, z))
+}
+
+// writeExternalChunks writes the side files of one region's external
+// records, and reclaims the side files of chunks the region's new
+// records no longer store externally (measured: every in-file write
+// first deletes the chunk's .mcc, so a whole-region save leaves side
+// files behind only for records that are still external).
+func writeExternalChunks(regionDir string, rx, rz int, externals map[chunkKey][]byte) error {
+	stale, err := filepath.Glob(filepath.Join(regionDir, "c.*.*.mcc"))
+	if err != nil {
+		return err
+	}
+	for _, path := range stale {
+		x, z, err := externalChunkFileCoords(path)
+		if err != nil || int(x>>5) != rx || int(z>>5) != rz {
+			continue
+		}
+		if _, ok := externals[chunkKey{x, z}]; ok {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	for ck, payload := range externals {
+		path := externalChunkPath(regionDir, ck.X, ck.Z)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, payload, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reclaimExternalChunk removes one chunk's side file, which the native
+// writer does on every in-file write and on clearing the record
+// (measured: lambda in RegionFile.write and RegionFile.clear calling
+// Files.deleteIfExists on the chunk's external path).
+func reclaimExternalChunk(regionDir string, x, z int32) error {
+	if err := os.Remove(externalChunkPath(regionDir, x, z)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// externalChunkFileCoords parses a c.<x>.<z>.mcc side-file name.
+func externalChunkFileCoords(path string) (int32, int32, error) {
+	parts := strings.Split(filepath.Base(path), ".")
+	if len(parts) != 4 || parts[0] != "c" || parts[3] != "mcc" {
+		return 0, 0, fmt.Errorf("invalid external chunk filename %s", path)
+	}
+	coords := [2]int32{}
+	for i := range coords {
+		value, err := strconv.ParseInt(parts[i+1], 10, 32)
+		if err != nil || strconv.FormatInt(value, 10) != parts[i+1] {
+			return 0, 0, fmt.Errorf("invalid external chunk coordinate %s", path)
+		}
+		coords[i] = int32(value)
+	}
+	return coords[0], coords[1], nil
 }
 
 func sortedChunkKeys(m map[chunkKey][]byte) []chunkKey {
@@ -472,9 +562,15 @@ func (s *DimensionSaveSnapshot) writeDir(dir string) error {
 		if err != nil {
 			return err
 		}
-		data := encodeRegion(payloads)
+		data, externals := encodeRegion(payloads, s.compression.versionByte())
 		if data == nil {
 			continue
+		}
+		regionDir := filepath.Dir(regionFileName(dir, int(r.X), int(r.Z)))
+		if len(externals) > 0 || regionHasExternalChunks(regionDir, int(r.X), int(r.Z)) {
+			if err := writeExternalChunks(regionDir, int(r.X), int(r.Z), externals); err != nil {
+				return err
+			}
 		}
 		path := regionFileName(dir, int(r.X), int(r.Z))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -485,6 +581,23 @@ func (s *DimensionSaveSnapshot) writeDir(dir string) error {
 		}
 	}
 	return nil
+}
+
+// regionHasExternalChunks reports whether a region folder holds side
+// files belonging to one region, so a save that produced no new
+// external records still reclaims the ones its records replaced.
+func regionHasExternalChunks(regionDir string, rx, rz int) bool {
+	stale, err := filepath.Glob(filepath.Join(regionDir, "c.*.*.mcc"))
+	if err != nil {
+		return false
+	}
+	for _, path := range stale {
+		x, z, err := externalChunkFileCoords(path)
+		if err == nil && int(x>>5) == rx && int(z>>5) == rz {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *DimensionSaveSnapshot) encodeChunkPayloads(chunks []chunkKey) (map[chunkKey][]byte, error) {
@@ -501,15 +614,11 @@ func (s *DimensionSaveSnapshot) encodeChunkPayloads(chunks []chunkKey) (map[chun
 		if err := nbt.WriteNamed(&raw, "", compound); err != nil {
 			return nil, err
 		}
-		var compressed bytes.Buffer
-		zw := zlib.NewWriter(&compressed)
-		if _, err := zw.Write(raw.Bytes()); err != nil {
+		payload, err := s.compression.compressRecordPayload(raw.Bytes())
+		if err != nil {
 			return nil, err
 		}
-		if err := zw.Close(); err != nil {
-			return nil, err
-		}
-		payloads[c] = compressed.Bytes()
+		payloads[c] = payload
 	}
 	return payloads, nil
 }

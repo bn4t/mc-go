@@ -144,6 +144,7 @@ func (s *Server) scheduledRetirementOwned(submit bool) {
 		snapshot.dimensions[name] = d.w.CaptureDimensionChunksWithTicks(d.minY, d.height,
 			func(x, z int) []map[string]any { return s.chunkBlockEntities(d, x, z) },
 			func(x, z int) *world.ChunkLight { return d.savedLight(x, z) }, selection)
+		snapshot.dimensions[name].SetRegionCompression(s.RegionCompression)
 	}
 	write := s.tickRetirementWrite
 	if write == nil {

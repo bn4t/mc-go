@@ -15,7 +15,18 @@ type DimensionSaveSnapshot struct {
 	biome        string
 	regions      map[chunkKey][]chunkKey
 	chunks       map[chunkKey]dimensionSaveChunk
-	err          error
+	// compression is the record codec this snapshot writes with; the
+	// zero value is deflate, the native default.
+	compression RegionCodec
+	err         error
+}
+
+// SetRegionCompression selects the record codec this snapshot writes
+// region files with (measured: server.properties
+// region-file-compression selects one global version for every
+// region file a save writes - chunk and entity regions alike).
+func (s *DimensionSaveSnapshot) SetRegionCompression(c RegionCodec) {
+	s.compression = c
 }
 
 type dimensionSaveChunk struct {

@@ -273,7 +273,7 @@ func TestNativeEntityPartialWriteRetryRemovesIntermediateRegion(t *testing.T) {
 	// The destination reaches disk, while a later region fails before the old
 	// position tombstone is written. This is the nontransactional writer boundary.
 	dir := world.DimensionDir(s.WorldDir, dimOverworld)
-	if err := world.MergeEntityRegions(dir, map[[2]int32][]map[string]any{{32, 0}: selection.rows[[2]int32{32, 0}]}); err != nil {
+	if err := world.MergeEntityRegions(dir, world.RegionDeflate, map[[2]int32][]map[string]any{{32, 0}: selection.rows[[2]int32{32, 0}]}); err != nil {
 		t.Fatal(err)
 	}
 	s.recordNativeSaveOwned(&nativeWorldSaveJob{err: os.ErrPermission, entityOwnership: receipts})

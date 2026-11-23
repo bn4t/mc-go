@@ -27,6 +27,12 @@ import (
 	"fmt"
 )
 
+// Write side. The compressor below emits the public block format any
+// conforming LZ4 decoder accepts - including vanilla's JNI
+// LZ4FastDecompressor - but its choice of matches is its own: the
+// native library's compressed bytes for the same input may differ, and
+// record parity is the format, not byte-identical compression.
+
 // lz4BlockFrameHeader is the jpountz per-block header: 8 magic bytes,
 // one token, three little-endian u32s.
 const lz4BlockFrameHeader = 21
@@ -188,4 +194,133 @@ func decodeLZ4BlockStream(payload []byte) ([]byte, error) {
 		out = append(out, decoded...)
 		i += compressedLen
 	}
+}
+
+// lz4StreamBlockSize is the block size of the one-argument
+// LZ4BlockOutputStream constructor the vanilla lz4 region writer uses
+// (measured: 64 KiB). lz4StreamLevel is the compressionLevel that
+// constructor derives for it - max(0, 32 - nlz(blockSize-1) - 10),
+// which lands in the token's low nibble; the reader adds 10 back to
+// bound a block's original length by 1<<(6+10).
+const (
+	lz4StreamBlockSize = 64 << 10
+	lz4StreamLevel     = 6
+)
+
+// lz4BlockCompress encodes src as one LZ4 block in the public block
+// format and appends it to dst. Matches come from a one-candidate
+// hash table like the reference compressor's fast mode; matches never
+// start or extend into the final 12 bytes, so the block always ends
+// with a literals-only sequence as the format requires.
+func lz4BlockCompress(src, dst []byte) []byte {
+	if len(src) == 0 {
+		return dst
+	}
+	const (
+		matchFindLimit = 12
+		hashLog        = 16
+	)
+	var table [1 << hashLog]int32 // one-candidate: position + 1; 0 = empty
+	out := dst
+	literalStart := 0
+	i := 0
+	for i+matchFindLimit < len(src) {
+		seq := binary.LittleEndian.Uint32(src[i:])
+		h := (seq * 2654435761) >> (32 - hashLog)
+		cand := int(table[h] - 1)
+		table[h] = int32(i) + 1
+		if cand < 0 || i-cand > 65535 || binary.LittleEndian.Uint32(src[cand:]) != seq {
+			i++
+			continue
+		}
+		// Extend forward only up to where the reference compressor
+		// stops, so the tail stays literals-only.
+		limit := len(src) - matchFindLimit
+		matchLen := 4
+		for i+matchLen < limit && src[cand+matchLen] == src[i+matchLen] {
+			matchLen++
+		}
+		litLen := i - literalStart
+		m := matchLen - 4
+		var token byte
+		if litLen < 15 {
+			token = byte(litLen) << 4
+		} else {
+			token = 15 << 4
+		}
+		if m < 15 {
+			token |= byte(m)
+		} else {
+			token |= 15
+		}
+		out = append(out, token)
+		if litLen >= 15 {
+			out = appendLZ4Length(out, litLen-15)
+		}
+		out = append(out, src[literalStart:i]...)
+		out = binary.LittleEndian.AppendUint16(out, uint16(i-cand))
+		if m >= 15 {
+			out = appendLZ4Length(out, m-15)
+		}
+		for p := i + 1; p+4 <= len(src) && p < i+matchLen; p++ {
+			ph := (binary.LittleEndian.Uint32(src[p:]) * 2654435761) >> (32 - hashLog)
+			table[ph] = int32(p) + 1
+		}
+		i += matchLen
+		literalStart = i
+	}
+	litLen := len(src) - literalStart
+	if litLen < 15 {
+		out = append(out, byte(litLen)<<4)
+	} else {
+		out = append(out, 15<<4)
+		out = appendLZ4Length(out, litLen-15)
+	}
+	return append(out, src[literalStart:]...)
+}
+
+// appendLZ4Length appends a 255-continuation length extension.
+func appendLZ4Length(out []byte, length int) []byte {
+	for length >= 255 {
+		out = append(out, 255)
+		length -= 255
+	}
+	return append(out, byte(length))
+}
+
+// encodeLZ4BlockStream renders payload as the stream the vanilla lz4
+// region writer produces (measured: RegionFileVersion id 4 wraps
+// records in LZ4BlockOutputStream(OutputStream) - 64-KiB blocks whose
+// header carries the magic, a token with raw (0x10) or LZ4 (0x20) in
+// its method nibble and 6 in its level nibble, little-endian
+// compressed and original lengths, and the block's xxHash32 checksum
+// under seed 0x9747b28c masked to 28 bits, which is what the Checksum
+// adapter's getValue reports). A block whose LZ4 encoding is not
+// strictly shorter is stored raw. The empty block that finish() adds
+// closes the stream; an empty payload is exactly that block.
+func encodeLZ4BlockStream(payload []byte) []byte {
+	var out []byte
+	for start := 0; start < len(payload); start += lz4StreamBlockSize {
+		end := start + lz4StreamBlockSize
+		if end > len(payload) {
+			end = len(payload)
+		}
+		block := payload[start:end]
+		check := xxHash32(block, 0x9747b28c) & 0x0FFFFFFF
+		method, data, size := byte(0x10), block, len(block)
+		if compressed := lz4BlockCompress(block, nil); len(compressed) < len(block) {
+			method, data, size = 0x20, compressed, len(compressed)
+		}
+		out = append(out, lz4BlockMagic[:]...)
+		out = append(out, method|lz4StreamLevel)
+		out = binary.LittleEndian.AppendUint32(out, uint32(size))
+		out = binary.LittleEndian.AppendUint32(out, uint32(len(block)))
+		out = binary.LittleEndian.AppendUint32(out, check)
+		out = append(out, data...)
+	}
+	out = append(out, lz4BlockMagic[:]...)
+	out = append(out, 0x10|lz4StreamLevel)
+	out = binary.LittleEndian.AppendUint32(out, 0)
+	out = binary.LittleEndian.AppendUint32(out, 0)
+	return binary.LittleEndian.AppendUint32(out, 0)
 }

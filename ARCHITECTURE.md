@@ -1470,8 +1470,11 @@ timestamps. Empty selected tick lists clear stale work. Capture occurs under the
 simulation owner; callers must serialize all writers to the same region. Each
 region replacement is atomic, without fsync or multi-file transaction guarantees.
 Scheduled-container retirement now uses this storage API; it does not establish
-full backend/entity unloading. Untouched external records survive; selected
-oversized output and external-file cleanup remain open.
+full backend/entity unloading. Untouched external records survive. A selected
+record that grows past the external threshold moves its payload to a
+c.<x>.<z>.mcc side file (the in-file record becomes the measured 5-byte stub),
+and a record written in-file or deleted reclaims the side file, as the native
+writer does.
 
 
 Frozen environmental/base player work uses the same due frame as living, food
@@ -1559,8 +1562,13 @@ nontransactional across files and provide no fsync guarantee. Entity and chunk
 region records now read in every version the real reader accepts — zlib, gzip,
 none, LZ4 block streams and external c.<x>.<z>.mcc stubs — and a record that
 fails to decode is a chunk that was never saved, so only a truncated nonzero
-header still blocks saves. The writer stays deflate-only and in-file, so
-replacing an external record can orphan its sidefile. Export without loading
+header still blocks saves. The writer honors server.properties
+region-file-compression — deflate, the default, none or lz4 — for every region
+it writes, and a record of 256 or more sectors is stored externally, its
+c.<x>.<z>.mcc side file reclaimed on in-file replacement or deletion. gzip
+stays readable but not selectable, matching the native property domain; the
+lz4 compressor emits the measured stream framing, not the native library's
+byte-identical match choices. Export without loading
 grants no authority over
 preexisting roots. This does not implement runtime entity unloading.
 

@@ -27,7 +27,7 @@ func (s *Server) saveEntityRegions(d *dimension) error {
 	}
 	receipts := map[string]nativeEntityOwnership{d.name: selection.ownership}
 	s.beginNativeEntityWritesOwned(receipts)
-	if err := world.MergeEntityRegions(world.DimensionDir(s.WorldDir, d.name), selection.rows); err != nil {
+	if err := world.MergeEntityRegions(world.DimensionDir(s.WorldDir, d.name), s.RegionCompression, selection.rows); err != nil {
 		return err
 	}
 	s.completeNativeEntityWritesOwned(receipts)

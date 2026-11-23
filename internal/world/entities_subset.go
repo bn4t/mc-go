@@ -71,11 +71,12 @@ func LoadEntityRegionChunks(dir string) (map[[2]int32][]map[string]any, error) {
 // MergeEntityRegions applies an explicit selection of entity chunks. Empty
 // lists delete selected records; absent keys preserve raw records and their
 // timestamps, including unsupported entity payloads and compression markers.
-// Callers must serialize all writers to the same region. This does not provide
-// a multi-file transaction or fsync guarantee. As with chunk merge, untouched
-// external markers survive; oversized selected internal writes are rejected,
-// and replacing a selected external record leaves its old sidefile orphaned.
-func MergeEntityRegions(dir string, selection map[[2]int32][]map[string]any) error {
+// Records are written with codec. Callers must serialize all writers to the
+// same region. This does not provide a multi-file transaction or fsync
+// guarantee. As with chunk merge, untouched external records keep their side
+// files; a selected record that is written in-file, or deleted, reclaims the
+// chunk's side file the way the native writer's deleteIfExists does.
+func MergeEntityRegions(dir string, codec RegionCodec, selection map[[2]int32][]map[string]any) error {
 	byRegion := map[chunkKey]map[int][]byte{}
 	for key, list := range selection {
 		region := chunkKey{key[0] >> 5, key[1] >> 5}
@@ -87,14 +88,15 @@ func MergeEntityRegions(dir string, selection map[[2]int32][]map[string]any) err
 			byRegion[region][slot] = nil
 			continue
 		}
-		payload, err := encodeEntityChunk(key, list)
+		payload, err := encodeEntityChunk(key, list, codec)
 		if err != nil {
 			return err
 		}
-		byRegion[region][slot] = append([]byte{compressZlib}, payload...)
+		byRegion[region][slot] = append([]byte{codec.versionByte()}, payload...)
 	}
+	entitiesDir := filepath.Join(dir, "entities")
 	for region, updates := range byRegion {
-		path := filepath.Join(dir, "entities", fmt.Sprintf("r.%d.%d.mca", region.X, region.Z))
+		path := filepath.Join(entitiesDir, fmt.Sprintf("r.%d.%d.mca", region.X, region.Z))
 		raw, err := os.ReadFile(path)
 		if errors.Is(err, os.ErrNotExist) || (err == nil && len(raw) == 0) {
 			onlyEmpty := true
@@ -124,8 +126,11 @@ func MergeEntityRegions(dir string, selection map[[2]int32][]map[string]any) err
 			}
 			binary.BigEndian.PutUint32(timestamps[slot*4:], uint32(time.Now().Unix()))
 		}
-		data, err := encodeStoredRegion(records, timestamps)
+		data, externals, err := encodeStoredRegion(records, timestamps)
 		if err != nil {
+			return err
+		}
+		if err := mergeRegionSideFiles(entitiesDir, int(region.X), int(region.Z), externals, updates); err != nil {
 			return err
 		}
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

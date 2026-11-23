@@ -2,7 +2,6 @@ package world
 
 import (
 	"bytes"
-	"compress/zlib"
 	"fmt"
 	"mc-go/internal/nbt"
 	"os"
@@ -21,14 +20,16 @@ import (
 // position inside the chunk.
 
 // SaveEntityRegions writes one entities region file per region that
-// holds at least one entity chunk under dir/entities/.
+// holds at least one entity chunk under dir/entities/. Records use
+// deflate: this is the fixture-writing entry point, and the server's
+// configured codec reaches entity regions through the merge writer.
 func SaveEntityRegions(dir string, ents map[[2]int32][]map[string]any) error {
 	byRegion := map[chunkKey]map[chunkKey][]byte{}
 	for c, list := range ents {
 		if len(list) == 0 {
 			continue
 		}
-		payload, err := encodeEntityChunk(c, list)
+		payload, err := encodeEntityChunk(c, list, RegionDeflate)
 		if err != nil {
 			return err
 		}
@@ -39,11 +40,17 @@ func SaveEntityRegions(dir string, ents map[[2]int32][]map[string]any) error {
 		byRegion[r][chunkKey{c[0], c[1]}] = payload
 	}
 	for r, payloads := range byRegion {
-		data := encodeRegion(payloads)
+		data, externals := encodeRegion(payloads, RegionDeflate.versionByte())
 		if data == nil {
 			continue
 		}
-		path := filepath.Join(dir, "entities", fmt.Sprintf("r.%d.%d.mca", r.X, r.Z))
+		entitiesDir := filepath.Join(dir, "entities")
+		if len(externals) > 0 {
+			if err := writeExternalChunks(entitiesDir, int(r.X), int(r.Z), externals); err != nil {
+				return err
+			}
+		}
+		path := filepath.Join(entitiesDir, fmt.Sprintf("r.%d.%d.mca", r.X, r.Z))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
@@ -69,7 +76,7 @@ func LoadEntityRegions(dir string) ([]map[string]any, error) {
 	return out, nil
 }
 
-func encodeEntityChunk(c [2]int32, list []map[string]any) ([]byte, error) {
+func encodeEntityChunk(c [2]int32, list []map[string]any, codec RegionCodec) ([]byte, error) {
 	items := make([]any, 0, len(list))
 	for _, m := range list {
 		items = append(items, m)
@@ -83,13 +90,5 @@ func encodeEntityChunk(c [2]int32, list []map[string]any) ([]byte, error) {
 	if err := nbt.WriteNamed(&raw, "", root); err != nil {
 		return nil, err
 	}
-	var zc bytes.Buffer
-	zw := zlib.NewWriter(&zc)
-	if _, err := zw.Write(raw.Bytes()); err != nil {
-		return nil, err
-	}
-	if err := zw.Close(); err != nil {
-		return nil, err
-	}
-	return zc.Bytes(), nil
+	return codec.compressRecordPayload(raw.Bytes())
 }

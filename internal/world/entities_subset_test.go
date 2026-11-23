@@ -23,7 +23,7 @@ func TestMergeEntityRegionsDeletionAndRawNeighbor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := MergeEntityRegions(dir, map[[2]int32][]map[string]any{{0, 0}: nil, {32, 0}: {row("moved")}}); err != nil {
+	if err := MergeEntityRegions(dir, RegionDeflate, map[[2]int32][]map[string]any{{0, 0}: nil, {32, 0}: {row("moved")}}); err != nil {
 		t.Fatal(err)
 	}
 	after, err := os.ReadFile(path)
@@ -68,7 +68,7 @@ func TestLoadEntityRegionRejectsPartialAuthority(t *testing.T) {
 			if err := nbt.WriteNamed(&buf, "", root); err != nil {
 				t.Fatal(err)
 			}
-			raw, err := encodeStoredRegion(map[int][]byte{0: append([]byte{compressNone}, buf.Bytes()...)}, make([]byte, 4096))
+			raw, _, err := encodeStoredRegion(map[int][]byte{0: append([]byte{compressNone}, buf.Bytes()...)}, make([]byte, 4096))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -108,11 +108,11 @@ func TestLoadEntityRegionPhysicalSourceAuthority(t *testing.T) {
 	dir := t.TempDir()
 	// Deliberately discordant saved Position/Pos: the source is still the
 	// physical slot (negative region, local chunk31), not an entity claim.
-	payload, err := encodeEntityChunk([2]int32{123, 456}, []map[string]any{{"id": "minecraft:pig"}})
+	payload, err := encodeEntityChunk([2]int32{123, 456}, []map[string]any{{"id": "minecraft:pig"}}, RegionDeflate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := encodeStoredRegion(map[int][]byte{31: append([]byte{compressZlib}, payload...)}, make([]byte, 4096))
+	data, _, err := encodeStoredRegion(map[int][]byte{31: append([]byte{compressZlib}, payload...)}, make([]byte, 4096))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,14 +145,14 @@ func TestEntityRegionsNativeEmptyFiles(t *testing.T) {
 	if err != nil || len(chunks) != 0 {
 		t.Fatalf("native zero-byte region: %#v %v", chunks, err)
 	}
-	if err := MergeEntityRegions(dir, map[[2]int32][]map[string]any{{0, 0}: nil}); err != nil {
+	if err := MergeEntityRegions(dir, RegionDeflate, map[[2]int32][]map[string]any{{0, 0}: nil}); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
 	if err != nil || info.Size() != 0 {
 		t.Fatalf("empty selection changed zero-byte region: %v %v", info, err)
 	}
-	if err := MergeEntityRegions(dir, map[[2]int32][]map[string]any{{0, 0}: {{"id": "minecraft:pig", "sentinel": "new"}}}); err != nil {
+	if err := MergeEntityRegions(dir, RegionDeflate, map[[2]int32][]map[string]any{{0, 0}: {{"id": "minecraft:pig", "sentinel": "new"}}}); err != nil {
 		t.Fatal(err)
 	}
 	chunks, err = LoadEntityRegionChunks(dir)

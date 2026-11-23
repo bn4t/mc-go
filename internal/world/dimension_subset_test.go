@@ -271,7 +271,11 @@ func TestMergedRegionRejectsInvalidFramingWithoutReplacing(t *testing.T) {
 	}
 }
 
-func TestMergedRegionOversizeSelectionReturnsErrorWithoutReplacing(t *testing.T) {
+func TestMergedRegionOversizeSelectionWritesExternalRecord(t *testing.T) {
+	// Measured native behavior: an oversized record is not an error -
+	// the payload moves to a c.<x>.<z>.mcc side file and the in-file
+	// record becomes the 5-byte stub. The merge replaces the prior
+	// region with that layout instead of rejecting the selection.
 	w := NewGen(nil, 1, func(Pos) Block { return Air })
 	defer w.Stop()
 	w.SetBlock(Pos{}, Stone)
@@ -281,18 +285,25 @@ func TestMergedRegionOversizeSelectionReturnsErrorWithoutReplacing(t *testing.T)
 		t.Fatal(err)
 	}
 	path := filepath.Join(DimensionDir(dir, dim), "region", "r.0.0.mca")
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	payload := make([]byte, 1100000)
 	_, _ = rand.New(rand.NewSource(1)).Read(payload)
 	s := w.CaptureDimensionChunksWithTicks(0, 16, func(int, int) []map[string]any { return []map[string]any{{"opaque": payload}} }, nil, map[[2]int32]SavedChunkTicks{{0, 0}: {}})
-	if err := s.WriteMerged(dir, dim); err == nil {
-		t.Fatal("oversize selected chunk silently omitted")
+	if err := s.WriteMerged(dir, dim); err != nil {
+		t.Fatalf("oversize selected chunk rejected: %v", err)
 	}
-	after, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(before, after) {
-		t.Fatal("failed oversize update replaced prior region")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, _, err := storedRegionRecords(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := records[0]; !ok || len(rec) != 1 || rec[0] != compressZlib|0x80 {
+		t.Fatalf("slot 0 record %#x (present %v), want external stub", rec, ok)
+	}
+	side, err := os.Stat(filepath.Join(DimensionDir(dir, dim), "region", "c.0.0.mcc"))
+	if err != nil || side.Size() < 1044476 {
+		t.Fatalf("external side file after oversize merge: %v size %d", err, side.Size())
 	}
 }

@@ -179,3 +179,137 @@ func TestLZ4BlockDecompressRejectsMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestEncodeLZ4BlockStreamShape(t *testing.T) {
+	// The writer's own header: magic, method|level token, LE
+	// compressed and original lengths, the masked checksum, and the
+	// 21-byte closing block finish() adds (measured: token level
+	// nibble 6 for the 64-KiB block size, raw fallback when LZ4 does
+	// not shorten the block).
+	plain := bytes.Repeat([]byte("0123456789abcdef"), 250)
+	stream := encodeLZ4BlockStream(plain)
+	if !bytes.Equal(stream[:8], []byte("LZ4Block")) {
+		t.Fatal("stream missing magic")
+	}
+	if token := stream[8]; token&0xF0 != 0x20 || token&0x0F != 6 {
+		t.Fatalf("data block token %#x, want method 0x20 level 6", token)
+	}
+	if got := binary.LittleEndian.Uint32(stream[13:]); got != uint32(len(plain)) {
+		t.Fatalf("original length %d, want %d", got, len(plain))
+	}
+	if check := binary.LittleEndian.Uint32(stream[17:]); check != xxHash32(plain, 0x9747b28c)&0x0FFFFFFF {
+		t.Fatalf("checksum %#x, want masked xxHash32 %#x", check, xxHash32(plain, 0x9747b28c)&0x0FFFFFFF)
+	}
+	end := stream[len(stream)-21:]
+	if !bytes.Equal(end[:8], []byte("LZ4Block")) || end[8] != 0x16 {
+		t.Fatalf("closing block %#x", end)
+	}
+	for _, v := range [][]byte{end[9:13], end[13:17], end[17:21]} {
+		if !bytes.Equal(v, []byte{0, 0, 0, 0}) {
+			t.Fatal("closing block lengths or checksum nonzero")
+		}
+	}
+	got, err := decodeLZ4BlockStream(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, plain) {
+		t.Fatal("round trip content mismatch")
+	}
+}
+
+func TestEncodeLZ4BlockStreamRawFallback(t *testing.T) {
+	// flushBufferedData stores a block raw when its compressed length
+	// is not shorter (measured: compressedLen >= originalLen -> raw
+	// block, lengths equal).
+	plain := javaPattern(60000, 3)
+	stream := encodeLZ4BlockStream(plain)
+	if token := stream[8]; token&0xF0 != 0x10 {
+		t.Fatalf("incompressible token method %#x, want raw 0x10", token>>4)
+	}
+	if got := binary.LittleEndian.Uint32(stream[9:]); got != uint32(len(plain)) {
+		t.Fatalf("raw compressed length %d, want %d", got, len(plain))
+	}
+	if !bytes.Equal(stream[21:21+len(plain)], plain) {
+		t.Fatal("raw block content mismatch")
+	}
+	got, err := decodeLZ4BlockStream(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, plain) {
+		t.Fatal("raw fallback round trip mismatch")
+	}
+}
+
+func TestEncodeLZ4BlockStreamEmptyPayloadIsEndBlock(t *testing.T) {
+	// An empty record is exactly finish()'s closing block (measured:
+	// no data block precedes it).
+	stream := encodeLZ4BlockStream(nil)
+	if len(stream) != 21 {
+		t.Fatalf("empty payload stream %d bytes, want the 21-byte end block", len(stream))
+	}
+	if got, err := decodeLZ4BlockStream(stream); err != nil || len(got) != 0 {
+		t.Fatalf("empty stream decode: got %d err %v", len(got), err)
+	}
+}
+
+func TestEncodeLZ4BlockStreamSplitsAt64KiB(t *testing.T) {
+	// Blocks split at the writer's 64-KiB block size, each with its
+	// own header and checksum, ending with the one closing block.
+	payload := javaPattern(lz4StreamBlockSize+11, 5)
+	stream := encodeLZ4BlockStream(payload)
+	blocks, i := 0, 0
+	for i < len(stream)-21 {
+		blocks++
+		i += lz4BlockFrameHeader + int(binary.LittleEndian.Uint32(stream[i+9:]))
+	}
+	if blocks != 2 || i != len(stream)-21 {
+		t.Fatalf("stream has %d blocks ending at %d of %d", blocks, i, len(stream))
+	}
+	got, err := decodeLZ4BlockStream(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatal("multi-block round trip mismatch")
+	}
+}
+
+func TestLZ4BlockCompressRoundTripsThroughStrictReader(t *testing.T) {
+	// The compressor's own output must satisfy the strict reader:
+	// every match offset is in range, lengths decode exactly, and the
+	// block ends with a literals-only sequence - and compressible
+	// input actually compresses.
+	shapes := [][]byte{
+		{},
+		[]byte("ab"),
+		bytes.Repeat([]byte{0}, 500),
+		javaPattern(12, 1),
+		javaPattern(13, 1),
+		javaPattern(60000, 9),
+		bytes.Repeat(javaPattern(100, 2), 4000),
+		javaPattern(70000, 4),
+	}
+	for _, src := range shapes {
+		comp := lz4BlockCompress(src, nil)
+		dst := make([]byte, len(src))
+		consumed, err := lz4BlockDecompress(comp, dst)
+		if err != nil {
+			t.Fatalf("len %d: %v", len(src), err)
+		}
+		if consumed != len(comp) {
+			t.Fatalf("len %d: consumed %d of %d", len(src), consumed, len(comp))
+		}
+		if !bytes.Equal(dst, src) {
+			t.Fatalf("len %d: content mismatch", len(src))
+		}
+	}
+	src := bytes.Repeat([]byte("0123456789abcdef"), 400)
+	if comp := lz4BlockCompress(src, nil); len(comp) >= len(src) {
+		t.Fatalf("repetitive input did not compress: %d -> %d", len(src), len(comp))
+	}
+	if comp := lz4BlockCompress([]byte{}, nil); len(comp) != 0 {
+		t.Fatalf("empty input compressed to %d bytes", len(comp))
+	}
+}

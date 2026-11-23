@@ -356,8 +356,9 @@ precedence over later `-seed` and `level-seed` settings. The public `server.New`
 default is seed 1; assigning `WorldSeed = 0` explicitly uses zero. This changes
 the in-process normal generator’s former implicit seed 0 to 1. `server-port`,
 `motd`, `max-players`, `online-mode`,
-`gamemode`, `difficulty`, the view/simulation distances, RCON and query
-come from the file. Command-line flags still win over it.
+`gamemode`, `difficulty`, the view/simulation distances,
+`region-file-compression` (deflate/none/lz4 region record codec),
+RCON and query come from the file. Command-line flags still win over it.
 
 ```sh
 printf 'online-mode=false\n' > server.properties

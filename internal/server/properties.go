@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"crypto/rand"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -407,6 +408,21 @@ func (s *Server) ApplyProperties(p *ServerProperties, serverDir string, skip map
 			return nil
 		}},
 		{"generate-structures", func(v string) error { s.GenerateStructures = v != "false"; return nil }},
+		{"region-file-compression", func(v string) error {
+			codec, ok := world.RegionCodecByName(v)
+			if !ok {
+				// Measured: the native server logs an error and
+				// keeps the default rather than refusing to
+				// start. The option list joins the by-name map's
+				// keySet in fastutil's hash order, which boots
+				// render as "lz4, none, deflate" (a vanilla boot
+				// with an invalid value printed exactly this).
+				log.Printf("Invalid `region-file-compression` value `%s` in server.properties. Please use one of: lz4, none, deflate", v)
+				return nil
+			}
+			s.RegionCompression = codec
+			return nil
+		}},
 		{"generator-settings", func(v string) error {
 			if s.LevelType != LevelTypeFlat {
 				return nil

@@ -170,6 +170,12 @@ type Server struct {
 	// keep the minimal window. Zero selects the vanilla default (10).
 	ViewDistance int
 
+	// RegionCompression selects the record codec every region file a
+	// save writes - chunk and entity regions alike. The zero value is
+	// deflate, the native default and the only version before this
+	// selection existed.
+	RegionCompression world.RegionCodec
+
 	// SimulationDistance is advertised in Join Game; entity ticking
 	// will use it once entity simulation lands. Zero selects 10.
 	SimulationDistance int
