@@ -1,0 +1,42 @@
+#!/bin/sh
+# Orb setup for mc-go: Go 1.27.3, Temurin JDK 25 and the pinned vanilla
+# 26.2 server jar. Everything the blackbox oracle and generators need.
+# Idempotent: existing installs and an extracted jar are reused.
+set -eu
+
+ROOT="${AMP_ORB_REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
+TOOLS="$HOME/tools"
+mkdir -p "$TOOLS"
+
+# Go 1.27.3 (the version the committed tree is verified with).
+if [ ! -x "$TOOLS/go/bin/go" ]; then
+  curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz | tar -xz -C "$TOOLS"
+fi
+ln -sf "$TOOLS/go/bin/go" /usr/local/bin/go
+ln -sf "$TOOLS/go/bin/gofmt" /usr/local/bin/gofmt
+
+# Temurin JDK 25 (26.2 needs class-file major 69).
+JDK=$(ls -d "$TOOLS"/jdk-25* 2>/dev/null | head -n 1 || true)
+if [ -z "$JDK" ]; then
+  curl -fsSL "https://api.adoptium.net/v3/binary/latest/25/ga/linux/x64/jdk/hotspot/normal/eclipse" |
+    tar -xz -C "$TOOLS"
+  JDK=$(ls -d "$TOOLS"/jdk-25* | head -n 1)
+fi
+for tool in java javac jar javap keytool; do
+  ln -sf "$JDK/bin/$tool" "/usr/local/bin/$tool"
+done
+
+# The pinned server jar and its extracted runtime. vanilla/ is gitignored.
+cd "$ROOT"
+if [ ! -f vanilla/server-26.2.jar ]; then
+  mkdir -p vanilla
+  curl -LsSf https://piston-data.mojang.com/v1/objects/823e2250d24b3ddac457a60c92a6a941943fcd6a/server.jar \
+    -o vanilla/server-26.2.jar
+fi
+echo "823e2250d24b3ddac457a60c92a6a941943fcd6a  vanilla/server-26.2.jar" | sha1sum -c -
+if [ ! -f vanilla/versions/26.2/server-26.2.jar ]; then
+  (cd vanilla && java -DbundlerMainClass=net.minecraft.data.Main -jar server-26.2.jar --all >/dev/null)
+fi
+
+go version
+java -version 2>&1 | head -n 1
