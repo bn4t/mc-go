@@ -213,8 +213,10 @@ Mojang server over the wire.
       Mob falls now use
       effective attributes, Jump Boost, landing block factors and fractional
       support tops, with seven vanilla comparisons. Ordinary player/mob knockback
-      consumes canonical resistance; the melee push reaches the victim's own
-      connection only, never chunk observers (`TestAttackKnockbackObserverParity`);
+      consumes canonical resistance; the melee push reaches a player victim's own
+      connection only, never chunk observers (`TestAttackKnockbackObserverParity`),
+      while a mob victim keeps the push in its record and the tracker's motion
+      branch and hurt tail publish the native pair (`TestMobKnockbackMotionCadenceParity`);
       sword sweep raw-motion precision is pinned.
       Spear contacts detach measured ordinary NPC boat riders, with independent
       invulnerability/cooldown controls and client transition receipts. Other
@@ -20649,3 +20651,16 @@ Native source is official Minecraft Java Edition 26.2/protocol 776, extracted ru
 Scope: player victims from a direct melee attack. Mob victims keep the record-delta tracker path (`mobAttackKnockback`), sweep/thorns/projectile pushes are unchanged, and the hurtMarked-false branch is not modeled because an accepted attack always marks the victim in the same synchronous handler (vanilla would keep the record delta in that branch). Attacker self-damping on a sprint hit remains pinned only through the shared-flags reset.
 
 Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, read with `javap -c -p` (Player.causeExtraKnockback) and observed on the wire with three scripted clients per server. No native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8.
+
+
+## Slice — mob attack knockback: record delta + tracker tail only (2026-11-25)
+
+- **Measured:** `javap -c -p` on the 26.2 jar, `Player.causeExtraKnockback`: for a non-player victim the method applies `LivingEntity.knockback` (or `Entity.push`) to the entity's own delta and returns without sending; only the ServerPlayer branch sends. `Entity.push`/`addDeltaMovement` also write `needsSync = true` on the same record, and `ServerEntity.sendChanges` publishes the changed delta from its needsSync motion branch and again from the hurt-marked tail. Wire, vanilla 26.2 in a frozen world (`tick freeze`, so no gravity or friction can add motion after the hit): one fist hit on a NoAI persistent pig produces exactly two `set_entity_motion` packets for the pig on the attacker's tracking connection, both carrying the identical composed delta. Pre-change mc-go produced three — the attack handler's inline broadcast plus the same two tracker arms. Fixture lesson: the freeze is what makes the count exact; an unfrozen pig's deceleration adds legitimate tracker motion packets.
+
+- **Implemented:** `mobAttackKnockback` no longer broadcasts. It writes the composed delta to the victim's record and latches `NeedsSync` (the native push/addDeltaMovement latch), leaving the damage's `HurtMarked` set; `mobSyncFlush`'s motion branch and hurt tail then publish the measured pair. The player-victim path from the previous slice is unchanged.
+
+- **Pinned:** New `TestMobKnockbackMotionCadenceParity` (18.32s): both servers emit exactly two identical deltas for the pig, and the two packets agree within each run. `TestKnockbackParity` green with it (40.81s, 59.21s combined); a first four-test run flaked that test on the attacker sprint-flags receipt (vanilla `false,0` vs mc-go `true,0` — the known vanilla timing flake), which passed standalone (34.80s) and in the repeat four-test run (35.26s). `go build ./...`, default `go vet ./...`, `go vet -tags blackbox ./tests/blackbox/` and `go test ./internal/...` (internal/server 300.45s) exit 0. Source patch (one production file, one extended observer, one new fixture) SHA-256 `124ad8eab3d5ee8f5972a94155e1adf849951440bd1b108ede17bf8d08daa61a`; file hashes `870fa45d2…` (interact.go), `aae1bac79…` (wear_parity_test.go), `cad74f1b6…` (mob_knockback_test.go).
+
+Scope: mob victims of a direct melee attack. The two-packet cadence is pinned under freeze; unfrozen arrival rides the next tracker pass and is not separately phase-pinned. Nonliving attackable victims, sweep/thorns/projectile pushes and the sprint attacker damping (shared-flags only) are unchanged; other needsSync latch sites keep their existing measurements.
+
+Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, read with `javap -c -p` (Player.causeExtraKnockback, Entity.push, Entity.addDeltaMovement, LivingEntity.knockback) and observed on the wire with a scripted client on both servers. No native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8.

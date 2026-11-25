@@ -28,6 +28,7 @@ type wearObs struct {
 	// last index-0 shared-flags metadata byte.
 	motions      map[int32][3]float64
 	motionCounts map[int32]int
+	motionSeq    map[int32][][3]float64
 	flags        map[int32]byte
 }
 
@@ -93,6 +94,10 @@ func drainWear(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Write
 				obs.motionCounts = map[int32]int{}
 			}
 			obs.motionCounts[eid]++
+			if obs.motionSeq == nil {
+				obs.motionSeq = map[int32][][3]float64{}
+			}
+			obs.motionSeq[eid] = append(obs.motionSeq[eid], [3]float64{x, y, z})
 		case server.IDPlayEntityMetadata:
 			r := protocol.NewPacketReader(p.Data)
 			eid, err := r.VarInt()

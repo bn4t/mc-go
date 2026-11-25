@@ -974,8 +974,17 @@ func (s *Server) mobAttackKnockback(sess *Session, eid int32, scale float32) {
 			s.endSprintKnockback(sess)
 		}
 	}
-	s.entities.SetMotion(eid, vx, vy, vz)
-	s.broadcastEntityMotion(e.Dim, eid, vx, vy, vz)
+	// Vanilla sends nothing here for a non-player victim: the push is
+	// the entity's record delta, and ServerEntity.sendChanges publishes
+	// it on the next tracker pass - once from the needsSync motion
+	// branch and once from the hurt-marked tail, which is the measured
+	// two packets a hit produces. Entity.push/addDeltaMovement latch
+	// needsSync on the record, so the gate does not depend on the
+	// updateInterval phase; an inline broadcast would be a third packet.
+	if pe, ok := s.entities.GetPtr(eid); ok {
+		pe.MotionX, pe.MotionY, pe.MotionZ = vx, vy, vz
+		pe.NeedsSync = true
+	}
 }
 
 // playerAttackKnockback sends the victim's post-hit velocity as

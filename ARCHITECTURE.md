@@ -72,8 +72,10 @@ attributes reach owner and tracked observers through the shared serializer.
 Equipment modifiers are nonpermanent, including zero toughness rows. Initialized
 player knockback also evaluates canonical resistance with generated bounds;
 only detached/uninitialized sessions retain inventory synthesis. The melee
-push is sent through the victim's own connection only, gated on its
-hurtMarked flag, so trackers observe no attack push. Arbitrary
+push is sent through a player victim's own connection only, gated on its
+hurtMarked flag, so trackers observe no attack push; a mob victim keeps the
+push in its record and the tracker's motion branch plus hurt tail publish the
+native pair. Arbitrary
 item attribute components and general nested-component identity remain partial.
 Player health consumers narrow the effective ranged maximum to float32 and
 share bounded float healing. Late living-frame refresh clamps excess health;
