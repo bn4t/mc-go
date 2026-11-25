@@ -358,7 +358,10 @@ the in-process normal generator’s former implicit seed 0 to 1. `server-port`,
 `motd`, `max-players`, `online-mode`,
 `gamemode`, `difficulty`, the view/simulation distances,
 `region-file-compression` (deflate/none/lz4 region record codec),
-RCON and query come from the file. Command-line flags still win over it.
+RCON and query come from the file. Worlds mc-go saves under any of the
+three codecs are verified to open in the real server, including chunks
+large enough for the external `.mcc` side files.
+Command-line flags still win over it.
 
 ```sh
 printf 'online-mode=false\n' > server.properties

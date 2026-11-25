@@ -1568,7 +1568,10 @@ it writes, and a record of 256 or more sectors is stored externally, its
 c.<x>.<z>.mcc side file reclaimed on in-file replacement or deletion. gzip
 stays readable but not selectable, matching the native property domain; the
 lz4 compressor emits the measured stream framing, not the native library's
-byte-identical match choices. Export without loading
+byte-identical match choices. Both directions are pinned against the real
+server: mc-go-written none, LZ4 and external records are handed to vanilla,
+which restores the marker chunks and saved mobs, and its own resave of the
+external chunk carries the original oversized block-entity NBT. Export without loading
 grants no authority over
 preexisting roots. This does not implement runtime entity unloading.
 
