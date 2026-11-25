@@ -121,7 +121,7 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		return
 	}
 	if un, ok := itemNameOf(st.ID); ok && !st.Empty() {
-		if _, bucket := bucketContents[un]; bucket {
+		if _, bucket := bucketContents[un]; bucket || mobBucketEntity[un] != "" {
 			s.useBucket(sess, hand, yaw, pitch, un)
 			return
 		}

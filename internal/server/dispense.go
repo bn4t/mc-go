@@ -156,6 +156,12 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 				s.setSilentBlock(d, front, nb)
 				s.wakeFluids(d, front)
 				s.rsNeighborFanOut(d, front)
+				// MobBucketItem.checkExtraContent: the fish spawns at
+				// the cell the water just filled (the dispenser has no
+				// player, so ENTITY_PLACE has no source).
+				if mob := mobBucketEntity[itemName]; mob != "" {
+					s.spawnMobBucket(d, front, mob, nil)
+				}
 			}
 		}
 		bid, ok := world.ItemIDs["bucket"]

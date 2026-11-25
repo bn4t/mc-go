@@ -7,12 +7,25 @@ import (
 )
 
 // bucketContents names the fluid a plain BucketItem carries ("" for the
-// empty bucket). Mob buckets (MobBucketItem) also carry water but spawn
-// their mob; mc-go leaves them to the default path.
+// empty bucket). Mob buckets (MobBucketItem) carry water and then spawn
+// their mob; mobBucketEntity names that entity.
 var bucketContents = map[string]string{
 	"bucket":       "",
 	"water_bucket": "water",
 	"lava_bucket":  "lava",
+}
+
+// mobBucketEntity maps the MobBucketItem family to the entity released
+// when the bucket is emptied. The fluid half is water for all of them.
+// sulfur_cube_bucket stays out until the cube's bucket metadata and
+// release are measured.
+var mobBucketEntity = map[string]string{
+	"cod_bucket":           "cod",
+	"salmon_bucket":        "salmon",
+	"pufferfish_bucket":    "pufferfish",
+	"tropical_fish_bucket": "tropical_fish",
+	"axolotl_bucket":       "axolotl",
+	"tadpole_bucket":       "tadpole",
 }
 
 // useBucket is BucketItem.use through ServerPlayerGameMode.useItem.
@@ -26,6 +39,13 @@ var bucketContents = map[string]string{
 // (sendAllDataToRemote).
 func (s *Server) useBucket(sess *Session, hand int32, yaw, pitch float32, item string) {
 	content := bucketContents[item]
+	mob := mobBucketEntity[item]
+	if mob != "" {
+		// MobBucketItem carries water; its emptyContents delegates to
+		// BucketItem's and checkExtraContent then spawns the mob at the
+		// same cell.
+		content = "water"
+	}
 	d := sess.dimension()
 	if d == nil || sess.mode() == GameModeSpectator {
 		return
@@ -66,6 +86,9 @@ func (s *Server) useBucket(sess *Session, hand int32, yaw, pitch float32, item s
 	if !s.bucketEmpty(sess, d, target, &hit, content) {
 		return
 	}
+	if mob != "" {
+		s.spawnMobBucket(d, target, mob, sess)
+	}
 	sess.addItemStat(statUsed, stack.ID, 1)
 	empty := stack
 	if sess.mode() != GameModeCreative {
@@ -73,6 +96,34 @@ func (s *Server) useBucket(sess *Session, hand int32, yaw, pitch float32, item s
 		empty = ItemStack{ID: bid, Count: 1}
 	}
 	s.bucketResult(sess, slot, stack, empty)
+}
+
+// spawnMobBucket is MobBucketItem.spawn: the mob appears at the cell's
+// bottom center with a random wrapDegrees(nextFloat*360) yaw, the
+// bucketable families that carry a FROM_BUCKET accessor set it, and the
+// spawn ends with one ambient voice and ENTITY_PLACE. BlockPos.create's
+// y offset is zero for the water cell these buckets land in, which is
+// the measured wire position.
+func (s *Server) spawnMobBucket(d *dimension, pos world.Pos, name string, sess *Session) {
+	x, z := float64(pos.X)+0.5, float64(pos.Z)+0.5
+	yaw := mthWrapDegrees(rand.Float32() * 360)
+	e, ok := s.summonMobRaw(d, name, x, float64(pos.Y), z, false, true)
+	if !ok {
+		return
+	}
+	e.Yaw, e.Pitch = yaw, 0
+	e.HeadYaw, e.LookYaw = yaw, yaw
+	// AbstractFish and Axolotl carry FROM_BUCKET; Tadpole overrides
+	// setFromBucket as a no-op, so it must not set the flag.
+	switch name {
+	case "cod", "salmon", "pufferfish", "tropical_fish", "axolotl":
+		e.FromBucket = true
+	}
+	s.broadcastFreshMob(e)
+	if a, ok := mobAmbient[name]; ok {
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, mobAmbientSoundID(e, name), mobVoiceOf(e).src(), a.vol, voicePitchE(e), nil)
+	}
+	s.emitGameEvent(d, "entity_place", x, float64(pos.Y)+0.5, z, sess, "")
 }
 
 // bucketMayUseAt is Player.mayUseItemAt for a bucket: abilities.mayBuild

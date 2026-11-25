@@ -261,8 +261,10 @@ Mojang server over the wire.
   invalid pairs, silent output clicks, close returns with no close
   echo; enchanting, brewing, beacon and lectern also have documented scoped
   pins (TestEnchantParity, TestBrewPotionParity, TestBeaconEffectsParity,
-  TestLecternParity). Their existing coverage does not imply every gesture,
-  recipe, lifecycle or component combination is complete.)
+  TestLecternParity; empty, fluid and mob buckets share one measured use path,
+  with cod/axolotl/tadpole release pinned from a player and a dispenser by
+  `TestBucketParity`/`TestDispenserMobBucketParity`). Their existing coverage
+  does not imply every gesture, recipe, lifecycle or component combination is complete.)
 - [~] Survival mode: health, hunger (two-clock regen + deferred
       exhaustion drain + i-frames measured), starvation, void, death/
       respawn, item drops on death — eating/fall damage present; adventure
@@ -20664,3 +20666,16 @@ Native source is official Minecraft Java Edition 26.2/protocol 776, extracted ru
 Scope: mob victims of a direct melee attack. The two-packet cadence is pinned under freeze; unfrozen arrival rides the next tracker pass and is not separately phase-pinned. Nonliving attackable victims, sweep/thorns/projectile pushes and the sprint attacker damping (shared-flags only) are unchanged; other needsSync latch sites keep their existing measurements.
 
 Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, read with `javap -c -p` (Player.causeExtraKnockback, Entity.push, Entity.addDeltaMovement, LivingEntity.knockback) and observed on the wire with a scripted client on both servers. No native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8.
+
+
+## Slice — mob bucket release: fish, axolotl and tadpole (2026-11-25)
+
+- **Measured:** `javap -c -p` on the 26.2 jar, `MobBucketItem`: `emptyContents` delegates to `BucketItem`'s water placement, and `BucketItem.use` then calls `checkExtraContent` → `spawn`, which creates the entity at the cell's bottom center with a random `wrapDegrees(nextFloat*360)` yaw, loads the stack's bucket data and calls `Bucketable.setFromBucket(true)`, then `Mob.playAmbientSound` and `ENTITY_PLACE`. `AbstractFish` and `Axolotl` set a FROM_BUCKET metadata accessor; `Tadpole.setFromBucket` is a no-op; `EntityType.create`'s y offset is zero for the water cell these buckets land in. Wire, vanilla 26.2 in the frozen bucket fixture: cod/axolotl/tadpole buckets on the floor place water at the cell and spawn the mob at `(x+0.5, cellY, z+0.5)`; a cod bucket on a stone face places water at the face cell and spawns the cod there (`0.500, 0.000, -0.500` relative); survival leaves an empty bucket with a full inventory resend (slot 36), creative keeps the cod bucket. Dispenser: `cod_bucket` places water at the mouth, spawns the cod at the mouth center and keeps the empty bucket. Pre-change mc-go did none of it: the `use_item` dispatch only routed `bucketContents` items, so mob buckets fell through with no water, spawn or inventory change, and the dispenser threw the bucket as a plain item.
+
+- **Implemented:** `mobBucketEntity` (cod/salmon/pufferfish/tropical_fish/axolotl/tadpole) and `spawnMobBucket` — `summonMobRaw` at the cell's bottom center, random wrapped yaw, `FromBucket` for the families that carry it (not tadpole), the ambient voice and `ENTITY_PLACE`. `useBucket` treats a mob bucket as water and spawns after the fluid write; the use-item dispatch routes the new items. The dispenser's fluid branch spawns after its water write, with no player source.
+
+- **Pinned:** `TestBucketParity` grew from 46 to 47 cases (four creative + one survival mob-bucket case) and reports `47 cases, 0 differ` (230.35s); pre-fix the five new cases each lost the water, spawn and inventory change. New `TestDispenserMobBucketParity` (15.22s) asserts the cod spawn, mouth water and retained bucket on both servers. Regression in the same invocation: `TestDispenserShearParity` (202.02s) and `TestTacticalFishingParity` (32.96s), 250.28s total. `go build ./...`, default `go vet ./...`, `go vet -tags blackbox ./tests/blackbox/` and `go test ./internal/...` (internal/server 291.12s) exit 0. Source patch (three production files, one extended fixture, one new fixture) SHA-256 `91719068af968e63c8161b27c20530b068d14d7920288ec2f06d0929cec8d0c6`; file hashes `695c30105…` (bucket.go), `ef52def2c…` (eating.go), `682dc4d4e…` (dispense.go), `cebc51e15…` (bucket_test.go), `84ab2aac1…` (dispenser_mobbucket_test.go).
+
+Scope: player and dispenser release for the six fish-family buckets. `sulfur_cube_bucket` (a MobBucketItem in 26.2) still falls back to the default item throw because the cube's bucket metadata is not modeled; a caught bucket's `BUCKET_ENTITY_DATA` is not stored by mc-go's catching path, so a released fish gets default health/variant; the dispenser keeps its existing air/non-solid water-placement branch. The server does not pin the ambient voice or ENTITY_PLACE side effects. Only cod, axolotl and tadpole are wire-pinned; salmon, pufferfish and tropical_fish share the same code path unpinned.
+
+Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, read with `javap -c -p` (MobBucketItem, BucketItem, AbstractFish, Axolotl, Tadpole, EntityType.create) and observed on the wire with scripted clients on both servers. No native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8.

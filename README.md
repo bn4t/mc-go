@@ -86,6 +86,9 @@ end items and disc insertion. Jukebox command, disk and interaction paths share
 typed records with measured component, count/default and playback-clock
 preservation. Paired ejection sends STOP before the item spawn. Arbitrary
 component patches and custom song overrides remain in progress.
+Empty, fluid and mob buckets share the measured use path: cod, salmon, pufferfish,
+tropical fish, axolotl and tadpole buckets place water and release the mob at that
+cell, from a player's use or a dispenser, leaving the measured empty-bucket result.
 Axes, shovels, hoes and honeycomb support measured selected-hand transformations,
 costs and effect recipients. Copper chest menus preserve named cargo and stay
 usable while another player waxes or scrapes the same live chest. Mixed copper
