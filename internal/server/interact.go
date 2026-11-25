@@ -1007,17 +1007,16 @@ func (s *Server) playerAttackKnockback(sess, target *Session, scale float32) {
 			s.endSprintKnockback(sess)
 		}
 	}
-	s.broadcastEntityMotion(target.dimName(), target.entityID.Load(), vx, vy, vz)
-	// Player.causeExtraKnockback tails the push by consuming the
-	// victim's hurtMarked itself: when the target is a ServerPlayer
-	// with hurtMarked set, the immediate motion send doubles as the
-	// flush — vanilla clears the flag and restores the pre-hit delta
-	// right after connection.send (offsets 137-166), so no later
-	// sendChanges re-emits the restored (zero for a stationary
-	// victim) record delta over the knockback packet. The record's
-	// motion was never changed here — the push is packet-only — so
-	// only the flag clear is needed.
-	if pe, ok := s.entities.GetPtr(target.entityID.Load()); ok {
+	// Player.causeExtraKnockback's tail: when the victim is a player
+	// whose just-landed hurt marked it, vanilla sends the pushed delta
+	// through that victim's own connection - not to chunk trackers -
+	// then clears hurtMarked and restores the record's pre-hit delta
+	// (measured: the ServerPlayer branch sends connection.send, clears
+	// the flag and setDeltaMovement(pre-hit), offsets 123-169). The push
+	// is packet-only here too, so an observer's tracker pass has no
+	// delta to publish.
+	if pe, ok := s.entities.GetPtr(target.entityID.Load()); ok && pe.HurtMarked {
+		_ = target.write(target.ids().PlaySetEntityMotion, encodeEntityMotion(pe.ID, vx, vy, vz))
 		pe.HurtMarked = false
 	}
 }

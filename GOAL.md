@@ -213,7 +213,9 @@ Mojang server over the wire.
       Mob falls now use
       effective attributes, Jump Boost, landing block factors and fractional
       support tops, with seven vanilla comparisons. Ordinary player/mob knockback
-      consumes canonical resistance; sword sweep raw-motion precision is pinned.
+      consumes canonical resistance; the melee push reaches the victim's own
+      connection only, never chunk observers (`TestAttackKnockbackObserverParity`);
+      sword sweep raw-motion precision is pinned.
       Spear contacts detach measured ordinary NPC boat riders, with independent
       invulnerability/cooldown controls and client transition receipts. Other
       mount geometry and specialized weapon consumers remain partial. Held spear
@@ -20634,3 +20636,16 @@ Native source is official Minecraft Java Edition 26.2/protocol 776, extracted ru
 Scope: the written LZ4 stream is pinned for its format (framing, checksums, raw/compressed blocks), not for byte-identical match choices; gzip stays readable but not writable and the custom codec id 127 stays unsupported by design. The external record pin uses the none codec, the only selectable codec whose measured fixture stays oversized; external entity-region records remain unit-pinned (`TestMergeEntityRegionsExternalRecordRoundTrip`), and the vanilla resave's extra out-of-range light section is the known per-boot save behavior, not a payload difference this pin asserts. The external fixture writes ~1.9 MB of chunk NBT through 70 commands and needs the Java oracle.
 
 Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, read with `javap -c -p` (RegionFileVersion, RegionFile, LZ4BlockInputStream) and observed by booting the real jar on mc-go's saved directories and reading its output files; no native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8.
+
+
+## Slice — melee knockback recipient: victim connection only (2026-11-25)
+
+- **Measured:** `javap -c -p` on the 26.2 jar, `Player.causeExtraKnockback` (offsets 123-169): after the push, the ServerPlayer branch sends `ClientboundSetEntityMotionPacket(victim)` through `victim.connection.send`, clears `hurtMarked` and restores the pre-hit `deltaMovement` — the push is packet-visible on the victim's own stream and never reaches chunk trackers. Wire, vanilla 26.2: three survival clients (attacker KAtt, victim KVic, observer KObs) in a flat arena, one fist hit. The victim's connection saw exactly one motion, `[0.3999877922, 0.3608008301, 0]`; the observer's connection saw one motion for the victim too, but it was the victim's ordinary fall settle `[0, -0.0783739241897089, 0]` — never the horizontal push. Pre-change mc-go: the observer saw `[0.3999877922, 0.3999877922, 0]`, byte-for-byte the victim's own packet (RED). Fixture lesson: a join burst can swallow the adds of players already present, so the observer joins while the victim is parked at x=1000 and the victim then steps to x=6; the observer's fresh pairing add for the eid the attacker learned is the tracking receipt.
+
+- **Implemented:** `playerAttackKnockback` now sends the composed delta through the victim's own session (`target.write(…PlaySetEntityMotion, encodeEntityMotion(victim…))`) instead of `broadcastEntityMotion`, gated on the victim record's `HurtMarked` the way the native ServerPlayer branch is, and clears that flag after the send. The push stays packet-only and the record motion is untouched, so no tracker pass has a delta to publish; mob victims keep their existing `mobAttackKnockback` record-delta path.
+
+- **Pinned:** New `TestAttackKnockbackObserverParity` (30.47s): both servers independently show exactly one victim motion and an observer delta that is not the push; vanilla's observer measured the fall-settle delta above. Regression: `TestKnockbackParity` (35.07s) and `TestHurtMarkedMotionParity` (27.41s) green in the same 93.04s invocation. `go build ./...`, default `go vet ./...`, `go vet -tags blackbox ./tests/blackbox/` and `go test ./internal/...` (internal/server 290.87s) exit 0. Source patch (one production file plus two test files) SHA-256 `17775fd7bd08d88942ab367046d5a0062dacb99649042c7ea9ae014171e77ef8`; file hashes `56a210802…` (interact.go), `a41d61cfd…` (wear_parity_test.go) and `3e93a3101…` (knockback_observer_test.go).
+
+Scope: player victims from a direct melee attack. Mob victims keep the record-delta tracker path (`mobAttackKnockback`), sweep/thorns/projectile pushes are unchanged, and the hurtMarked-false branch is not modeled because an accepted attack always marks the victim in the same synchronous handler (vanilla would keep the record delta in that branch). Attacker self-damping on a sprint hit remains pinned only through the shared-flags reset.
+
+Native source is official Minecraft Java Edition 26.2/protocol 776, extracted runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, read with `javap -c -p` (Player.causeExtraKnockback) and observed on the wire with three scripted clients per server. No native implementation body was copied. Go 1.27.3 and Temurin 25.0.5+8.

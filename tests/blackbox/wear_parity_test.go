@@ -23,10 +23,12 @@ type wearObs struct {
 	// produced out of ambient spawn traffic.
 	spawnedPos map[int32][4]float64
 	// motions records the last set_entity_motion delta (decoded
-	// LpVec3) per entity; flags the last index-0 shared-flags
-	// metadata byte.
-	motions map[int32][3]float64
-	flags   map[int32]byte
+	// LpVec3) per entity; motionCounts counts every such packet, so a
+	// fixture can assert silence as well as the last value. flags the
+	// last index-0 shared-flags metadata byte.
+	motions      map[int32][3]float64
+	motionCounts map[int32]int
+	flags        map[int32]byte
 }
 
 // drainWear reads server traffic for d, keeping the session alive and
@@ -87,6 +89,10 @@ func drainWear(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Write
 				obs.motions = map[int32][3]float64{}
 			}
 			obs.motions[eid] = [3]float64{x, y, z}
+			if obs.motionCounts == nil {
+				obs.motionCounts = map[int32]int{}
+			}
+			obs.motionCounts[eid]++
 		case server.IDPlayEntityMetadata:
 			r := protocol.NewPacketReader(p.Data)
 			eid, err := r.VarInt()
