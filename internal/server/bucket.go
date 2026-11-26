@@ -87,7 +87,7 @@ func (s *Server) useBucket(sess *Session, hand int32, yaw, pitch float32, item s
 		return
 	}
 	if mob != "" {
-		s.spawnMobBucket(d, target, mob, sess)
+		s.spawnMobBucket(d, target, mob, sess, stack)
 	}
 	sess.addItemStat(statUsed, stack.ID, 1)
 	empty := stack
@@ -104,7 +104,7 @@ func (s *Server) useBucket(sess *Session, hand int32, yaw, pitch float32, item s
 // spawn ends with one ambient voice and ENTITY_PLACE. BlockPos.create's
 // y offset is zero for the water cell these buckets land in, which is
 // the measured wire position.
-func (s *Server) spawnMobBucket(d *dimension, pos world.Pos, name string, sess *Session) {
+func (s *Server) spawnMobBucket(d *dimension, pos world.Pos, name string, sess *Session, st ItemStack) {
 	x, z := float64(pos.X)+0.5, float64(pos.Z)+0.5
 	yaw := mthWrapDegrees(rand.Float32() * 360)
 	e, ok := s.summonMobRaw(d, name, x, float64(pos.Y), z, false, true)
@@ -113,6 +113,14 @@ func (s *Server) spawnMobBucket(d *dimension, pos world.Pos, name string, sess *
 	}
 	e.Yaw, e.Pitch = yaw, 0
 	e.HeadYaw, e.LookYaw = yaw, yaw
+	// Bucketable.loadDefaultDataFromBucketTag plus the Age pair: the
+	// caught mob's health and flags, and the bucket stack's custom name
+	// (appendComponentsConfig applies custom_name on spawn).
+	applyBucketEntityData(e, st.BucketEntity)
+	if st.Name != "" {
+		e.CustomName = st.Name
+		e.CustomNameComp = false
+	}
 	// AbstractFish and Axolotl carry FROM_BUCKET; Tadpole overrides
 	// setFromBucket as a no-op, so it must not set the flag.
 	switch name {

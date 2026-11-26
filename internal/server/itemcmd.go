@@ -1234,6 +1234,8 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.StoredEnch = ""
 			case "bees":
 				it.Bees = 0
+			case "bucket_entity_data":
+				it.BucketEntity = ""
 			case "block_state":
 				it.BlockState = ""
 			case "container_loot":
@@ -1310,6 +1312,11 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
 			it.Name = vtag.str
+		case "bucket_entity_data":
+			if vtag.kind != snbtCompound {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.BucketEntity = bucketEntityDataFromNBT(snbtToValue(vtag))
 		case "enchantments":
 			// The component is a flat {name: level} compound
 			// (ItemEnchantments' codec is the unbounded map itself,

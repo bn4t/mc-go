@@ -693,15 +693,20 @@ func (s *Server) bucketFish(sess *Session, eid int32, hand int32) {
 	if !ok {
 		return
 	}
+	// Bucketable.saveDefaultDataToBucketTag: the custom name copies
+	// onto the bucket stack as a component, and the caught mob's
+	// health/flags (plus Age for tadpole/axolotl) travel in
+	// bucket_entity_data. Remove happens after this snapshot.
+	filled := ItemStack{ID: outID, Count: 1, BucketEntity: bucketEntityDataString(e, name)}
 	if sess.mode() == GameModeCreative {
 		slot := sess.firstEmptySlot()
 		if slot < 0 {
 			return
 		}
-		sess.setStack(slot, ItemStack{ID: outID, Count: 1})
+		sess.setStack(slot, filled)
 		_ = s.sendContainerSlot(sess, slot, sess.stackAt(slot))
 	} else {
-		sess.setStack(hslot, ItemStack{ID: outID, Count: 1})
+		sess.setStack(hslot, filled)
 		_ = s.sendContainerSlot(sess, hslot, sess.stackAt(hslot))
 	}
 	// See the note above: vanilla 26.2 never awards filled_bucket here.

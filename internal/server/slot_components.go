@@ -253,6 +253,9 @@ func (t *slotProjector) component(r *protocol.PacketReader, b *protocol.Buffer, 
 		})
 	case compBees:
 		return list(1024, func() error { return t.bee(r, b, depth+1) })
+	case compBucketEntityData:
+		// CustomData: one anonymous NBT compound (tag byte + payload).
+		return t.nbt(r, b, false, depth+1)
 	case compFireworkExp:
 		return t.firework(r, b)
 	case compFireworks:

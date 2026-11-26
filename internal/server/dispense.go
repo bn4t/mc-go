@@ -160,7 +160,7 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 				// the cell the water just filled (the dispenser has no
 				// player, so ENTITY_PLACE has no source).
 				if mob := mobBucketEntity[itemName]; mob != "" {
-					s.spawnMobBucket(d, front, mob, nil)
+					s.spawnMobBucket(d, front, mob, nil, st)
 				}
 			}
 		}

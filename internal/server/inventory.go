@@ -75,6 +75,10 @@ type ItemStack struct {
 	// placement. Only the count matters for the triggers we model;
 	// the entity payloads are never inspected.
 	Bees int32 `json:"bees,omitempty"`
+	// BucketEntity is the minecraft:bucket_entity_data component as the
+	// canonical "Key=value" string bucketEntityDataString renders. A
+	// plain string keeps ItemStack comparable with ==.
+	BucketEntity string `json:"bucket_entity,omitempty"`
 	// BlockState is the minecraft:block_state component — the flat
 	// property map a silk-touched block item carries (a bee nest's
 	// honey_level) so placement restores it. Canonical "key=val"
@@ -329,6 +333,11 @@ const (
 	// TypedEntityData (entity-type holder VarInt, then the entity
 	// compound tag) plus ticks_in_hive and min_ticks_in_hive VarInts.
 	compBees = 77
+	// bucket_entity_data is CustomData (a compound tag), registered
+	// 59th: use_effects is 0 and the five earlier components shift the
+	// measured custom_name=6/tooltip_display=18/bees=77 anchors by +5
+	// from their position in the generated registry list.
+	compBucketEntityData = 59
 )
 
 // potionNamesByID inverts data.PotionIDs for the decode path; the
@@ -405,6 +414,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		add++
 	}
 	if it.Bees > 0 {
+		add++
+	}
+	if it.BucketEntity != "" {
 		add++
 	}
 	if it.Trim != "" {
@@ -638,6 +650,10 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 			b.VarInt(0)   // ticks_in_hive
 			b.VarInt(600) // min_ticks_in_hive
 		}
+	}
+	if it.BucketEntity != "" {
+		b.VarInt(compBucketEntityData)
+		_ = nbt.WriteUnnamed(b, bucketEntityDataNBT(it.BucketEntity))
 	}
 	if it.Trim != "" {
 		// ItemTrim's holders write material first, then pattern —
@@ -951,6 +967,12 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 			}
 			it.Bees++
 		}
+	case compBucketEntityData: // minecraft:bucket_entity_data, compound
+		v, err := (&slotProjector{}).readNBT(r, false, 0)
+		if err != nil {
+			return err
+		}
+		it.BucketEntity = bucketEntityDataFromNBT(v)
 	case compBundleContents:
 		var err error
 		it.Bundle, err = readBundleContents(r, 0)

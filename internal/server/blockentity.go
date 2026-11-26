@@ -659,6 +659,9 @@ func itemNBT(it ItemStack) map[string]any {
 // box, which travel with the item and are what a dropped box holds.
 func itemComponentsNBT(it ItemStack) map[string]any {
 	comps := map[string]any{}
+	if it.BucketEntity != "" {
+		comps["minecraft:bucket_entity_data"] = bucketEntityDataNBT(it.BucketEntity)
+	}
 	if it.Bundle != "" {
 		comps["minecraft:bundle_contents"] = bundleContentsNBT(it)
 	}
@@ -1015,6 +1018,9 @@ func itemFromNBT(m map[string]any) ItemStack {
 	}
 	it.Count = int32(nbtNumberOr(m["count"], 1))
 	if comps, ok := m["components"].(map[string]any); ok {
+		if v, ok := comps["minecraft:bucket_entity_data"]; ok {
+			it.BucketEntity = bucketEntityDataFromNBT(v)
+		}
 		if v, ok := comps["minecraft:potion_duration_scale"]; ok {
 			_ = setPotionScale(&it, v)
 		}
@@ -1034,6 +1040,9 @@ func itemFromNBT(m map[string]any) ItemStack {
 			}
 		}
 		decoded := modeledItemComponents(it, comps)
+		if decoded.BucketEntity == "" {
+			decoded.BucketEntity = it.BucketEntity
+		}
 		// Preserve the dedicated native readers, especially recursive
 		// container entries and trim, which have a richer save shape than
 		// the item command parser. Common fields come from the same decoder

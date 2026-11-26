@@ -89,6 +89,8 @@ component patches and custom song overrides remain in progress.
 Empty, fluid and mob buckets share the measured use path: cod, salmon, pufferfish,
 tropical fish, axolotl and tadpole buckets place water and release the mob at that
 cell, from a player's use or a dispenser, leaving the measured empty-bucket result.
+A caught bucket carries its mob's health and spawn flags (and a tadpole's or
+axolotl's age) into the release, with the mob's custom name as a component.
 Axes, shovels, hoes and honeycomb support measured selected-hand transformations,
 costs and effect recipients. Copper chest menus preserve named cargo and stay
 usable while another player waxes or scrapes the same live chest. Mixed copper
